@@ -7,16 +7,16 @@ package parsley.internal.deepembedding.backend
 
 import scala.annotation.tailrec
 import scala.collection.mutable
-
 import parsley.XAssert.*
 import parsley.exceptions.CorruptedReferenceException
 import parsley.state.Ref
-
 import parsley.internal.collection.mutable.ResizableArray
-import parsley.internal.deepembedding.ContOps, ContOps.{perform, ContAdapter}
-import parsley.internal.machine.instructions, instructions.{Instr, Label}
-
+import parsley.internal.deepembedding.ContOps
+import ContOps.{ContAdapter, perform}
+import parsley.internal.machine.instructions
+import instructions.{Instr, Label}
 import StrictParsley.*
+import parsley.internal.machine.jit.Optimizer
 
 /** This is the root type of the parsley "backend": it represents a combinator tree
   * where the join-points in the tree (recursive or otherwise) have been factored into
@@ -209,7 +209,7 @@ private [deepembedding] object StrictParsley {
         val instrs_ = new Array[Instr](size)
         applyLabels(instrsOversize, labelMapping, instrs_, instrs_.length, 0, 0)
         tco(instrs_, labelMapping, retLocs)
-        instrs_
+        Optimizer.optimize(instrs_)
     }
 
     /** Performs Tail-Call Optimisation (TCO) on the final array of instructions.
