@@ -259,7 +259,7 @@ private [instructions] abstract class FilterLike extends Instr {
     var good: Int
     var bad: Int
 
-    final override def relabel(labels: Array[Int]): this.type = {
+    final override def relabel(labels: Int => Int): this.type = {
         good = labels(good)
         bad = labels(bad)
         this
@@ -275,6 +275,8 @@ private [instructions] abstract class FilterLike extends Instr {
         ctx.handlers.pc = bad
         ctx.exchangeAndContinue((x, ctx.offset - ctx.states.offset))
     }
+
+    final override def labels(pos: Int): Seq[Int] = Seq(good, bad)
 }
 
 private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {

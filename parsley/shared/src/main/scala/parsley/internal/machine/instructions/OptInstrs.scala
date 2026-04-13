@@ -87,14 +87,18 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
 
 private [internal] sealed abstract class JumpTablePreds {
     val next: JumpTablePreds
-    def relabelThis(labels: Array[Int]): Unit
+    def relabelThis(labels: Int => Int): Unit
+    protected def ownLabels: Seq[Int]
     def toPartialFunction: PartialFunction[Char, (Int, Iterable[ExpectItem])]
 
     @tailrec
-    final def relabel(labels: Array[Int]): Unit = {
+    final def relabel(labels: Int => Int): Unit = {
         this.relabelThis(labels)
         if (next ne null) next.relabel(labels)
     }
+
+    final def labels: Seq[Int] = ownLabels ++ (if (next ne null) next.labels else Nil)
+
     final def toPartialFunctions: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = toPartialFunctions(mutable.ListBuffer.empty)
     @tailrec
     private def toPartialFunctions(fns: mutable.ListBuffer[PartialFunction[Char, (Int, Iterable[ExpectItem])]]): List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = {
@@ -111,9 +115,10 @@ private [internal] object JumpTablePreds {
         }
 }
 private [internal] final class JumpTableCharMapPred(val map: mutable.Map[Char, (Int, Iterable[ExpectItem])], val next: JumpTablePreds) extends JumpTablePreds {
-    def relabelThis(labels: Array[Int]): Unit = {
+    def relabelThis(labels: Int => Int): Unit = {
         val _ = map.mapValuesInPlaceCompat { case (_, (i, errs)) => (labels(i), errs) }
     }
+    override protected def ownLabels: Seq[Int] = map.values.map(_._1).toSeq
     def toPartialFunction: PartialFunction[Char, (Int, Iterable[ExpectItem])] = map.toMap
 
     // $COVERAGE-OFF$
@@ -121,7 +126,8 @@ private [internal] final class JumpTableCharMapPred(val map: mutable.Map[Char, (
     // $COVERAGE-ON$
 }
 private [internal] final class JumpTableCharFunPred(val pred: Char => Boolean, var label: Int, val errors: Iterable[ExpectItem], val next: JumpTablePreds) extends JumpTablePreds{
-    def relabelThis(labels: Array[Int]): Unit = this.label = labels(this.label)
+    def relabelThis(labels: Int => Int): Unit = this.label = labels(this.label)
+    override protected def ownLabels: Seq[Int] = Seq(label)
     def toPartialFunction: PartialFunction[Char, (Int, Iterable[ExpectItem])] = {
         val labelErrs = (label, errors)
 
@@ -173,7 +179,7 @@ private [internal] final class JumpTable
         ctx.pushHandler(merge)
     }
 
-    override def relabel(labels: Array[Int]): this.type = {
+    override def relabel(labels: Int => Int): this.type = {
         jumpTable.relabel(labels)
         default = labels(default)
         merge = labels(merge)
@@ -185,6 +191,8 @@ private [internal] final class JumpTable
     // $COVERAGE-OFF$
     override def toString: String = s"JumpTable($jumpTable, _ -> $default, $merge)"
     // $COVERAGE-ON$
+
+    override def labels(pos: Int): Seq[Int] = jumpTable.labels :+ default :+ merge :+ defaultPreamble
 }
 private [instructions] object JumpTable {
     private val checkDefined = (_: Any) => null

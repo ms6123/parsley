@@ -201,12 +201,9 @@ private [internal] object SepEndBy1SepHandler extends Instr {
         ctx.stack.pop_() // the bool is no longer needed
         val acc = ctx.stack.peek[mutable.Builder[Any, Any]]
         acc += x
-        // discard the other handler and increment so that we are sat on the other handler
-        assert(ctx.instrs(ctx.pc + 1) eq SepEndBy1WholeHandler, "the next instruction from the sep handler must be the whole handler")
-        assert(ctx.handlers.pc == ctx.pc + 1, "the top-most handler must be the whole handler in the sep handler")
-        ctx.handlers = ctx.handlers.tail
         ctx.inc()
-        SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, check, acc, readP = true)
+        ctx.handlers.check = check
+        ctx.stack.upush(true)
     }
 
     // $COVERAGE-OFF$

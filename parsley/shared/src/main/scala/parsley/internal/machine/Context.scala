@@ -56,6 +56,8 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
     private var hintsValidOffset = 0
     private [machine] var errs: ErrorStack = Stack.empty
 
+    private [machine] var incs = 0
+
     private [machine] def restoreHints(): Unit = {
         val hintFrame = this.handlers
         this.hintsValidOffset = hintFrame.hintOffset
@@ -232,7 +234,10 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
         stack.exchange(x)
         inc()
     }
-    private [machine] def inc(): Unit = pc += 1
+    private [machine] def inc(): Unit = {
+        pc += 1
+        incs += 1
+    }
     private [machine] def peekChar: Char = input.charAt(offset)
     private [machine] def peekChar(lookAhead: Int): Char = input.charAt(offset + lookAhead)
     private [machine] def moreInput: Boolean = offset < inputsz

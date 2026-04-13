@@ -80,6 +80,8 @@ private [internal] final class DynCall(f: (Any, Int) => Array[Instr]) extends In
     // $COVERAGE-OFF$
     override def toString: String = "DynCall(?)"
     // $COVERAGE-ON$
+
+    override def labels(pos: Int): Seq[Int] = Seq(pos + 1)
 }
 private [internal] object DynCall {
     def apply[A](f: (A, Int) => Array[Instr]): DynCall = new DynCall(f.asInstanceOf[(Any, Int) => Array[Instr]])
@@ -97,15 +99,6 @@ private [internal] object Halt extends Instr {
 }
 
 private [internal] final class Call(var label: Int) extends InstrWithLabel {
-    private [this] var isSet: Boolean = false
-    override def relabel(labels: Array[Int]): this.type = {
-        if (!isSet) {
-            label = labels(label)
-            isSet = true
-        }
-        this
-    }
-
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.call(label)
@@ -113,6 +106,8 @@ private [internal] final class Call(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Call($label)"
     // $COVERAGE-ON$
+
+    override def labels(pos: Int): Seq[Int] = Seq(label, pos + 1)
 }
 
 private [internal] object Return extends Instr {

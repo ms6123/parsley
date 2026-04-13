@@ -11,17 +11,21 @@ import org.typelevel.scalaccompat.annotation.unused
 
 private [internal] abstract class Instr {
     def apply(ctx: Context): Unit
-    def relabel(@unused labels: Array[Int]): this.type = this
+    def relabel(@unused labels: Int => Int): this.type = this
     // Instructions should override this if they have mutable state inside!
     def copy: Instr = this
+
+    def labels(pos: Int): Seq[Int] = Seq.empty
 }
 
 private [internal] abstract class InstrWithLabel extends Instr {
     var label: Int
-    override def relabel(labels: Array[Int]): this.type = {
+    override def relabel(labels: Int => Int): this.type = {
         label = labels(label)
         this
     }
+
+    override def labels(pos: Int): Seq[Int] = Seq(label)
 }
 
 // It's 2018 and Labels are making a come-back, along with 2 pass assembly

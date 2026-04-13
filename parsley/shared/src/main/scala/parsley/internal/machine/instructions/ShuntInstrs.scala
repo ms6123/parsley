@@ -219,11 +219,13 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         currentOffset - ctx.offset
     }
 
-    override def relabel(labels: Array[Int]): this.type = {
+    override def relabel(labels: Int => Int): this.type = {
         prefixAtomLabel = labels(prefixAtomLabel)
         postfixInfixLabel = labels(postfixInfixLabel)
         this
     }
+
+    override def labels(pos: Int): Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel)
 
     override def toString: String = s"Shunt(Prefix/Atom: $prefixAtomLabel, Postfix/Infix: $postfixInfixLabel)"
 }
