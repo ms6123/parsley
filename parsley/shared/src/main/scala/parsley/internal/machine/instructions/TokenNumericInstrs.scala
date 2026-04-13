@@ -25,7 +25,7 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         if (plusPresence ne PlusSignPresence.Illegal) Set(new ExpectRaw("+"), new ExpectRaw("-"))
         else                                          Set(new ExpectRaw("-"))
 
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         // This could be simplified, but the "fail" branches need to be duplicated...
         if (ctx.moreInput && ctx.peekChar == '-') {

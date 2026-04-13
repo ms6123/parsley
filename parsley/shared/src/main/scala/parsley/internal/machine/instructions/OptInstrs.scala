@@ -18,7 +18,7 @@ import parsley.internal.machine.errors.{EmptyHints, ExpectedError}
 import parsley.internal.machine.stacks.ErrorStack
 
 private [internal] final class Lift1(f: Any => Any) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.exchangeAndContinue(f(ctx.stack.upeek))
     }
@@ -31,7 +31,7 @@ private [internal] object Lift1 {
 }
 
 private [internal] final class Exchange[A](private [Exchange] val x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.exchangeAndContinue(x)
     }
@@ -42,7 +42,7 @@ private [internal] final class Exchange[A](private [Exchange] val x: A) extends 
 
 private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr {
     private [this] final val expected = _expected.asExpectDescs
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
@@ -56,7 +56,7 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
 }
 
 private [internal] final class RecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.catchNoConsumed(ctx.handlers.check) {
@@ -71,7 +71,7 @@ private [internal] final class RecoverWith[A](x: A) extends Instr {
 }
 
 private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints() // This must be before adding the error to hints
@@ -144,7 +144,7 @@ private [internal] final class JumpTable
     private [this] var defaultPreamble: Int = _
     private [this] var jumpTableFuncs: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = _
 
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput) {
             val (dest, errorItems) = getRoot(ctx.peekChar, jumpTableFuncs)
@@ -159,6 +159,7 @@ private [internal] final class JumpTable
             addErrors(ctx, allErrorItems)
             ctx.pc = default
         }
+        false
     }
 
     // This is using the same trick that the standard library uses, under the assumption that `applyOrElse` has been optimised to

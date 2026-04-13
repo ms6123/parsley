@@ -7,24 +7,25 @@ package parsley.internal.machine.instructions
 
 import scala.collection.mutable
 
-import parsley.XAssert.*
-
 import parsley.internal.machine.Context
 import parsley.internal.machine.XAssert.*
 
 private [internal] final class Many(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             val x = ctx.stack.upop()
             ctx.stack.peek[mutable.Builder[Any, Any]] += x
             ctx.updateCheckOffset()
             ctx.pc = label
+            false
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
-            ctx.addErrorToHintsAndPop()
-            ctx.exchangeAndContinue(ctx.stack.peek[mutable.Builder[Any, Any]].result())
+        else {
+            ctx.catchNoConsumed(ctx.handlers.check) {
+                ctx.handlers = ctx.handlers.tail
+                ctx.addErrorToHintsAndPop()
+                ctx.exchangeAndContinue(ctx.stack.peek[mutable.Builder[Any, Any]].result())
+            }
         }
     }
     // $COVERAGE-OFF$
@@ -34,16 +35,17 @@ private [internal] final class Many(var label: Int) extends InstrWithLabel {
 
 // TODO: Factor these handlers out!
 private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             ctx.updateCheckOffset()
             ctx.pc = label
+            false
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.handlers = ctx.handlers.tail
             ctx.addErrorToHintsAndPop()
-            ctx.inc()
+            true
         }
     }
     // $COVERAGE-OFF$
@@ -52,18 +54,19 @@ private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] final class ChainPost(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             val op = ctx.stack.pop[Any => Any]()
             ctx.stack.exchange(op(ctx.stack.upeek))
             ctx.updateCheckOffset()
             ctx.pc = label
+            false
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.handlers = ctx.handlers.tail
             ctx.addErrorToHintsAndPop()
-            ctx.inc()
+            true
         }
     }
     // $COVERAGE-OFF$
@@ -79,18 +82,19 @@ private final class AndThen[-A, B, +C](f: A => B, g: B => C) extends (A => C) {
 }
 
 private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             val f = ctx.stack.pop[Any => Any]()
             ctx.stack.exchange(new AndThen(f, ctx.stack.peek[Any => Any]))
             ctx.updateCheckOffset()
             ctx.pc = label
+            false
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.handlers = ctx.handlers.tail
             ctx.addErrorToHintsAndPop()
-            ctx.inc()
+            true
         }
     }
     // $COVERAGE-OFF$
@@ -99,19 +103,20 @@ private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             val y = ctx.stack.upop()
             val op = ctx.stack.pop[(Any, Any) => Any]()
             ctx.stack.exchange(op(ctx.stack.peek[Any], y))
             ctx.updateCheckOffset()
             ctx.pc = label
+            false
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.handlers = ctx.handlers.tail
             ctx.addErrorToHintsAndPop()
-            ctx.inc()
+            true
         }
     }
     // $COVERAGE-OFF$
@@ -129,13 +134,14 @@ private [internal] object ROps {
 }
 
 private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val f = ctx.stack.pop[(Any, Any) => Any]()
         val x = ctx.stack.upop()
         ctx.stack.exchange(new ROps(f, x, ctx.stack.peek[ROps]))
         ctx.handlers = ctx.handlers.tail
         ctx.pc = label
+        false
     }
 
     // $COVERAGE-OFF$
@@ -144,7 +150,7 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
 }
 
 private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.handlers = ctx.handlers.tail
@@ -163,7 +169,7 @@ private [internal] object ChainrOpHandler  {
 }
 
 private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upop()
         ctx.stack.pop_() // the bool
@@ -173,6 +179,7 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
         ctx.handlers = ctx.handlers.tail
         ctx.updateCheckOffset()
         ctx.pc = label
+        false
     }
 
     // $COVERAGE-OFF$
@@ -181,7 +188,7 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
 }
 
 private [instructions] object SepEndBy1Handlers {
-    def pushAccWhenCheckValidAndContinue(ctx: Context, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Unit = {
+    def pushAccWhenCheckValidAndContinue(ctx: Context, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Boolean = {
         if (ctx.offset != check || !readP) ctx.fail()
         else {
             ctx.addErrorToHintsAndPop()
@@ -192,7 +199,7 @@ private [instructions] object SepEndBy1Handlers {
 }
 
 private [internal] object SepEndBy1SepHandler extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.handlers = ctx.handlers.tail
@@ -201,9 +208,9 @@ private [internal] object SepEndBy1SepHandler extends Instr {
         ctx.stack.pop_() // the bool is no longer needed
         val acc = ctx.stack.peek[mutable.Builder[Any, Any]]
         acc += x
-        ctx.inc()
         ctx.handlers.check = check
         ctx.stack.upush(true)
+        true
     }
 
     // $COVERAGE-OFF$
@@ -212,7 +219,7 @@ private [internal] object SepEndBy1SepHandler extends Instr {
 }
 
 private [internal] object SepEndBy1WholeHandler extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.handlers = ctx.handlers.tail
@@ -226,13 +233,14 @@ private [internal] object SepEndBy1WholeHandler extends Instr {
 }
 
 private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {
             case ManyUntil.Stop => ctx.exchangeAndContinue(ctx.stack.peek[mutable.Builder[Any, Any]].result())
             case x =>
                 ctx.stack.peek[mutable.Builder[Any, Any]] += x
                 ctx.pc = label
+                false
         }
     }
     // $COVERAGE-OFF$
@@ -244,11 +252,13 @@ private [parsley] object ManyUntil {
 }
 
 private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {
-            case ManyUntil.Stop => ctx.inc()
-            case _ => ctx.pc = label
+            case ManyUntil.Stop => true
+            case _ =>
+                ctx.pc = label
+                false
         }
     }
     // $COVERAGE-OFF$

@@ -13,7 +13,7 @@ import parsley.internal.machine.errors.{EmptyError, EmptyHints}
 
 // Stack Manipulators
 private [internal] final class Push[A](x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(x)
     }
@@ -26,7 +26,7 @@ private [internal] object Push {
 }
 
 private [internal] final class Fresh[A](x: =>A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(x)
     }
@@ -36,10 +36,10 @@ private [internal] final class Fresh[A](x: =>A) extends Instr {
 }
 
 private [internal] object Pop extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.stack.pop_()
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = "Pop"
@@ -47,7 +47,7 @@ private [internal] object Pop extends Instr {
 }
 
 private [internal] object Swap extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val y = ctx.stack.upop()
         val x = ctx.stack.peekAndExchange(y)
@@ -60,7 +60,7 @@ private [internal] object Swap extends Instr {
 
 // Applicative Functors
 private [internal] object Apply extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upop()
         val f = ctx.stack.peek[Any => Any]
@@ -73,7 +73,7 @@ private [internal] object Apply extends Instr {
 
 // Monadic
 private [internal] final class DynCall(f: (Any, Int) => Array[Instr]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.call(f(ctx.stack.upop(), ctx.regs.size))
     }
@@ -89,9 +89,10 @@ private [internal] object DynCall {
 
 // Control Flow
 private [internal] object Halt extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.running = false
+        false
     }
     // $COVERAGE-OFF$
     override def toString: String = "Halt"
@@ -99,7 +100,7 @@ private [internal] object Halt extends Instr {
 }
 
 private [internal] final class Call(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.call(label)
     }
@@ -111,7 +112,7 @@ private [internal] final class Call(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] object Return extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.ret()
     }
@@ -121,7 +122,7 @@ private [internal] object Return extends Instr {
 }
 
 private [internal] final class Empty(width: Int) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.fail(new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = width))
     }
@@ -134,10 +135,10 @@ private [internal] object Empty {
 }
 
 private [internal] final class PushHandler(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandler($label)"
@@ -145,10 +146,10 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
 }
 
 private [internal] object PopHandler extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = "PopHandler"
@@ -156,11 +157,11 @@ private [internal] object PopHandler extends Instr {
 }
 
 private [internal] final class PushHandlerAndClearHints(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.hints = EmptyHints
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndClearHints($label)"
@@ -168,12 +169,12 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
 }
 
 private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.saveState()
         ctx.hints = EmptyHints
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndStateAndClearHints($label)"
@@ -181,11 +182,11 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
 }
 
 private [internal] final class PushHandlerAndState(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.saveState()
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndState($label)"
@@ -193,11 +194,11 @@ private [internal] final class PushHandlerAndState(var label: Int) extends Instr
 }
 
 private [internal] object PopHandlerAndState extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.states = ctx.states.tail
         ctx.handlers = ctx.handlers.tail
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = "PopHandlerAndState"
@@ -205,9 +206,10 @@ private [internal] object PopHandlerAndState extends Instr {
 }
 
 private [internal] final class Jump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pc = label
+        false
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Jump($label)"
@@ -215,11 +217,12 @@ private [internal] final class Jump(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         // TODO: should this be mergeHints?
         ctx.handlers = ctx.handlers.tail
         ctx.pc = label
+        false
     }
     // $COVERAGE-OFF$
     override def toString: String = s"JumpAndPopCheck($label)"
@@ -227,11 +230,12 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
 }
 
 private [internal] final class JumpAndPopState(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.states = ctx.states.tail
         ctx.pc = label
+        false
     }
     // $COVERAGE-OFF$
     override def toString: String = s"JumpAndPopState($label)"
@@ -239,7 +243,7 @@ private [internal] final class JumpAndPopState(var label: Int) extends InstrWith
 }
 
 private [internal] final class Catch(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         val handler = ctx.handlers
@@ -248,7 +252,7 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
                 && handler.hints == ctx.hints && handler.hintOffset == ctx.currentHintsValidOffset,
                 "the handler can be re-used")
             handler.pc = label
-            ctx.inc()
+            true
         }
     }
     // $COVERAGE-OFF$
@@ -257,7 +261,7 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] final class RestoreAndPushHandler(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints()
@@ -267,7 +271,7 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
             && handler.hints == ctx.hints && handler.hintOffset == ctx.currentHintsValidOffset,
                "the handler can be re-used")
         handler.pc = label
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"RestoreAndPushHandler($label)"

@@ -24,9 +24,9 @@ private [token] abstract class Specific extends Instr {
     private [this] final val strsz = specific.length
     private [this] final val numCodePoints = specific.codePointCount(0, strsz)
 
-    protected def postprocess(ctx: Context): Unit
+    protected def postprocess(ctx: Context): Boolean
 
-    final override def apply(ctx: Context): Unit = {
+    final override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput(strsz)) {
             ctx.saveState()
@@ -45,7 +45,8 @@ private [token] abstract class Specific extends Instr {
         else (ctx: Context) => Character.toLowerCase(Character.toCodePoint(ctx.peekChar(0), ctx.peekChar(1)))
     }
 
-    final private def readSpecific(ctx: Context, j: Int): Unit = {
+    @tailrec
+    final private def readSpecific(ctx: Context, j: Int): Boolean = {
         if (j < strsz) {
             val c = specific.codePointAt(j)
             if (Character.isSupplementaryCodePoint(c) && ctx.moreInput(2) && readCharCaseHandledSupplementary(ctx) == c) {
@@ -75,14 +76,15 @@ private [internal] final class SoftKeyword(protected val specific: String, lette
              expected.asExpectItems(specific), expected.asReason, Some(new ExpectDesc(expectedEnd)))
     }
 
-    protected def postprocess(ctx: Context): Unit = {
+    protected def postprocess(ctx: Context): Boolean = {
         if (letter.peek(ctx)) {
             ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
             ctx.restoreState()
+            false
         }
         else {
             ctx.states = ctx.states.tail
-            ctx.inc()
+            true
         }
     }
 
@@ -109,20 +111,22 @@ private [internal] final class SoftOperator(protected val specific: String, lett
         else unexpectedWidth
     }
 
-    protected def postprocess(ctx: Context): Unit = {
+    protected def postprocess(ctx: Context): Boolean = {
         if (letter.peek(ctx)) {
             ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
             ctx.restoreState()
+            false
         }
         else {
             val unexpectedWidth = checkEnds(ctx, ends, off = 0, unexpectedWidth = 0)
             if (unexpectedWidth != 0) {
                 ctx.expectedFail(expectedEnd, unexpectedWidth)
                 ctx.restoreState()
+                false
             }
             else {
                 ctx.states = ctx.states.tail
-                ctx.inc()
+                true
             }
         }
     }

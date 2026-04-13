@@ -11,11 +11,11 @@ import parsley.internal.machine.stacks.ArrayStack
 import scala.annotation.tailrec
 
 private [internal] sealed abstract class ShuntToken {
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit
+    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean
 }
 
 private [internal] final class Atom(val v: Any, val lvl: Int) extends ShuntToken {
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
+    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean = {
         state.atoms.push(this)
         shunt.gotoPostInfix(ctx, state)
     }
@@ -47,7 +47,7 @@ private [internal] abstract class Operator extends ShuntToken {
 private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit =  {
+    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean =  {
         if (state.operators.nonEmpty && prec.compare(state.operators.peek.prec) < 0) {
             // This is a malformed expression
             ctx.handlers = ctx.handlers.tail
@@ -67,7 +67,8 @@ private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Op
 private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = true
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
+
+    private[instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean = {
         if (state.operators.nonEmpty && state.operators.peek.isPostfix && prec.compare(state.operators.peek.prec) > 0) {
             // This was an unexpected postfix operator
             ctx.handlers = ctx.handlers.tail
@@ -88,7 +89,8 @@ private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends O
 private [internal] final class InfixLOp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
+
+    private[instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean = {
         reduceWhilePrecGreaterOrEqual(state, shunt)
         state.operators.push(this)
         shunt.gotoPreAtom(ctx, state)
@@ -103,7 +105,8 @@ private [internal] final class InfixLOp(f: (Any, Any) => Any, val prec: Int) ext
 private [internal] final class InfixROp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
+
+    private[instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean = {
         reduceWhilePrecGreater(state, shunt)
         state.operators.push(this)
         shunt.gotoPreAtom(ctx, state)
@@ -118,7 +121,8 @@ private [internal] final class InfixROp(f: (Any, Any) => Any, val prec: Int) ext
 private [internal] final class InfixNOp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = true
-    private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
+
+    private[instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Boolean = {
         reduceWhilePrecGreater(state, shunt)
         if (state.operators.nonEmpty && state.operators.peek.isInfixNonAssoc && state.operators.peek.prec == prec) {
             // This is a special case in which non-associative operators are chained
@@ -148,7 +152,7 @@ private [internal] object ShuntingYardState {
 }
 
 private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixLabel: Int, wraps: Array[Array[Any => Any]]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         if (ctx.good) {
             val token = ctx.stack.pop[ShuntToken]()
             val state = ctx.stack.peek[ShuntingYardState]
@@ -159,7 +163,7 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         else handleBadContext(ctx)
     }
 
-    private final def handleBadContext(ctx: Context): Unit = {
+    private final def handleBadContext(ctx: Context): Boolean = {
         val handler = ctx.handlers
         ctx.handlers = ctx.handlers.tail
         ctx.states = ctx.states.tail
@@ -174,19 +178,21 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         }
     }
 
-    private [instructions] final def gotoPreAtom(ctx: Context, state: ShuntingYardState): Unit = {
+    private [instructions] final def gotoPreAtom(ctx: Context, state: ShuntingYardState): Boolean = {
         state.failOnNoConsumed = true
         ctx.pc = prefixAtomLabel
         ctx.refreshState()
+        false
     }
 
-    private [instructions] final def gotoPostInfix(ctx: Context, state: ShuntingYardState): Unit = {
+    private [instructions] final def gotoPostInfix(ctx: Context, state: ShuntingYardState): Boolean = {
         state.failOnNoConsumed = false
         ctx.pc = postfixInfixLabel
         ctx.refreshState()
+        false
     }
 
-    private [instructions] final def produceResult(ctx: Context): Unit = {
+    private[instructions] final def produceResult(ctx: Context): Boolean = {
         val state = ctx.stack.peek[ShuntingYardState]
 
         reduceAll(state)
@@ -195,7 +201,7 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
 
         val atom = state.atoms.peek[Atom]
         ctx.stack.exchange(wrap(atom.lvl, 0, atom.v))
-        ctx.inc()
+        true
     }
 
     @tailrec

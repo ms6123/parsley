@@ -102,25 +102,24 @@ private [instructions] trait Logger extends PrettyPortal with InputSlicer with C
 
 private [internal] final class LogBegin(var label: Int, override val name: String, override val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)])
     extends InstrWithLabel with Logger {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         println(preludeString(Enter, ctx, "", watchedRegs))
         if (break) doBreak(ctx)
         ctx.debuglvl += 1
         ctx.pushHandler(label)
-        ctx.inc()
+        true
     }
     override def toString: String = s"LogBegin($label, $name)"
 }
 
 private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with Logger {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.handlers = ctx.handlers.tail
         val end = " " + {
             if (ctx.good) {
-                ctx.inc()
                 green("Good")
             }
             else {
@@ -130,6 +129,7 @@ private [internal] final class LogEnd(val name: String, val ascii: Boolean, brea
         }
         println(preludeString(Exit, ctx, end, watchedRegs))
         if (break) doBreak(ctx)
+        ctx.good
     }
     override def toString: String = s"LogEnd($name)"
 }
@@ -161,7 +161,7 @@ private [instructions] final case class ErrLogData(hintsOffset: Int, hints: Set[
 
 private [internal] final class LogErrBegin(var label: Int, override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
     extends InstrWithLabel with ErrLogger {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val inFlightHints = ctx.inFlightHints.toSet
         // This should print out a classic opening line, followed by the currently in-flight hints
@@ -169,14 +169,14 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
         ctx.debuglvl += 1
         ctx.stack.push(ErrLogData(ctx.currentHintsValidOffset, inFlightHints))
         ctx.pushHandler(label)
-        ctx.inc()
+        true
     }
     override def toString: String = s"LogErrBegin($label, $name)"
 }
 
 private [internal] final class LogErrEnd(override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
     extends Instr with ErrLogger {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.handlers = ctx.handlers.tail
@@ -201,7 +201,7 @@ private [internal] final class LogErrEnd(override val name: String, override val
                     println(preludeString(Exit, ctx, msg))
                 }
             }
-            ctx.inc()
+            true
         }
         else {
             // In this case, the current top of stack error message is reported
@@ -239,11 +239,11 @@ private [instructions] object LogErrEnd {
 
 private [internal] final class ProfileEnter(var label: Int, name: String, profiler: Profiler) extends InstrWithLabel {
     private [this] val entries = profiler.entriesFor(name)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
-        ctx.inc()
         entries += profiler.monotone(System.nanoTime())
+        true
     }
 
     override def toString: String = s"ProfileEnter($label, $name)"
@@ -251,10 +251,10 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
 
 private [internal] final class ProfileExit(name: String, profiler: Profiler) extends Instr {
     private [this] val exits = profiler.exitsFor(name)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         exits += profiler.monotone(System.nanoTime())
         ctx.handlers = ctx.handlers.tail
-        if (ctx.good) ctx.inc()
+        if (ctx.good) true
         else ctx.fail()
     }
 

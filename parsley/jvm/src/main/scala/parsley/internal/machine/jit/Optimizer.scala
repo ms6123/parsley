@@ -5,19 +5,16 @@ import parsley.internal.machine.instructions.Instr
 
 object Optimizer {
   private case class BasicBlock(start: Int, end: Int, instrs: Array[Instr]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
       val startPc = ctx.pc
       for (instr <- instrs) {
-        ctx.pc = startPc
-        ctx.incs = 0
-        instr(ctx)
-        if (ctx.incs != 1) {
-          require(ctx.incs == 0, "Instruction cannot increment pc more than once")
+        val shouldContinue = instr(ctx)
+        if (!shouldContinue) {
           // Diverged, return control
-          return
+          return false
         }
       }
-      ctx.pc = startPc + 1
+      true
     }
 
     override def relabel(labels: Int => Int): this.type = ???

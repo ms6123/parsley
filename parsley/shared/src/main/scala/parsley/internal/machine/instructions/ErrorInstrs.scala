@@ -11,14 +11,14 @@ import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.EmptyError
 
 private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         if (ctx.offset == ctx.handlers.check) ctx.replaceHint(labels)
         // COK
         // do nothing
         ctx.mergeHints()
         ctx.handlers = ctx.handlers.tail
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = s"RelabelHints($labels)"
@@ -26,7 +26,7 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
 }
 
 private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         // this has the effect of relabelling all hints since the start of the label combinator
         ctx.restoreHints()
@@ -44,13 +44,13 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
 }
 
 private [internal] object HideHints extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         // according to old label logic, we do this unconditionally
         /*if (ctx.offset == ctx.handlers.check)*/ ctx.popHints()
         ctx.mergeHints()
         ctx.handlers = ctx.handlers.tail
-        ctx.inc()
+        true
     }
     // $COVERAGE-OFF$
     override def toString: String = "HideHints"
@@ -59,7 +59,7 @@ private [internal] object HideHints extends Instr {
 
 // FIXME: Gigaparsec points out the hints aren't being used here, I believe they should be!
 private [internal] object HideErrorAndFail extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         if (ctx.offset == ctx.handlers.check) ctx.errs.error = new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = 0)
@@ -72,11 +72,11 @@ private [internal] object HideErrorAndFail extends Instr {
 }
 
 private [internal] object ErrorToHints extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.addErrorToHintsAndPop()
-        ctx.inc()
+        true
     }
 
     // $COVERAGE-OFF$
@@ -85,7 +85,7 @@ private [internal] object ErrorToHints extends Instr {
 }
 
 private [internal] object MergeErrorsAndFail extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         val err2 = ctx.errs.error
@@ -100,7 +100,7 @@ private [internal] object MergeErrorsAndFail extends Instr {
 }
 
 private [internal] class ApplyReasonAndFail(reason: String) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.errs.error = ctx.errs.error.withReason(reason, ctx.handlers.check)
         ctx.handlers = ctx.handlers.tail
@@ -113,7 +113,7 @@ private [internal] class ApplyReasonAndFail(reason: String) extends Instr {
 }
 
 private [internal] class AmendAndFail private (partial: Boolean) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
         ctx.handlers = ctx.handlers.tail
@@ -133,7 +133,7 @@ private [internal] object AmendAndFail {
 }
 
 private [internal] object EntrenchAndFail extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.errs.error = ctx.errs.error.entrench
@@ -146,7 +146,7 @@ private [internal] object EntrenchAndFail extends Instr {
 }
 
 private [internal] class DislodgeAndFail(n: Int) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.errs.error = ctx.errs.error.dislodge(n)
@@ -159,7 +159,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr {
 }
 
 private [internal] object SetLexicalAndFail extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.errs.error = ctx.errs.error.markAsLexical(ctx.handlers.check)
         ctx.handlers = ctx.handlers.tail
@@ -172,7 +172,7 @@ private [internal] object SetLexicalAndFail extends Instr {
 }
 
 private [internal] final class Fail(width: CaretWidth, msgs: String*) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.failWithMessage(width, msgs*)
     }
@@ -183,7 +183,7 @@ private [internal] final class Fail(width: CaretWidth, msgs: String*) extends In
 
 private [internal] final class Unexpected(msg: String, width: CaretWidth) extends Instr {
     private [this] val unexpected = new UnexpectDesc(msg, width)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         ctx.unexpectedFail(None, unexpected)
     }
@@ -193,7 +193,7 @@ private [internal] final class Unexpected(msg: String, width: CaretWidth) extend
 }
 
 private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
         val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
@@ -209,7 +209,7 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
 }
 
 private [internal] final class SpecializedGen[A](gen: parsley.errors.SpecializedGen[A]) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
         val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
