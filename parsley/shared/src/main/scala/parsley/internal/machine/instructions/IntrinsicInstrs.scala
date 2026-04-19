@@ -18,7 +18,7 @@ import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
 
 private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val y = ctx.stack.upop()
         ctx.exchangeAndContinue(f(ctx.stack.upeek, y))
@@ -34,7 +34,7 @@ private [internal] object Lift2 {
 }
 
 private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val z = ctx.stack.upop()
         val y = ctx.stack.upop()
@@ -52,11 +52,11 @@ private [internal] object Lift3 {
 
 private [internal] class CharTok private (c: Char, errorItem: Iterable[ExpectItem]) extends Instr {
     def this(c: Char, expected: LabelConfig) = this(c, expected.asExpectItems(s"$c"))
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && ctx.peekChar == c) {
             ctx.consumeChar()
-            true
+            ctx.inc()
         }
         else ctx.expectedFail(errorItem, unexpectedWidth = 1)
     }
@@ -71,11 +71,11 @@ private [internal] class SupplementaryCharTok private (codepoint: Int, errorItem
     assert(Character.isSupplementaryCodePoint(codepoint), "SupplementaryCharTok should only be used for supplementary code points")
     val h = Character.highSurrogate(codepoint)
     val l = Character.lowSurrogate(codepoint)
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput(2) && ctx.peekChar(0) == h && ctx.peekChar(1) == l) {
             ctx.fastConsumeSupplementaryChar()
-            true
+            ctx.inc()
         }
         else ctx.expectedFail(errorItem, unexpectedWidth = 1)
     }
@@ -126,13 +126,13 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
             ctx.col = colAdjust(ctx.col)
             ctx.line = lineAdjust(ctx.line)
             ctx.offset = i
+            ctx.inc()
         }
     }
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         go(ctx, ctx.offset, 0)
-        ctx.good
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Str($s)"
@@ -141,7 +141,7 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
 
 private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[ExpectDesc]) extends Instr {
     def this(f: Int => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         lazy val hc = ctx.peekChar(0)
         lazy val h = hc.toInt
@@ -164,13 +164,10 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
 }
 
 private [internal] final class If(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        if (ctx.stack.pop[Boolean]()) {
-            ctx.pc = label
-            false
-        }
-        else true
+        if (ctx.stack.pop[Boolean]()) ctx.pc = label
+        else ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = s"If(true: $label)"
@@ -182,13 +179,12 @@ private [internal] final class If(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] final class Case(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.stack.peek[Either[_, _]] match {
             case Left(x)  =>
                 ctx.stack.exchange(x)
                 ctx.pc = label
-                false
             case Right(y) => ctx.exchangeAndContinue(y)
         }
     }
@@ -202,7 +198,7 @@ private [internal] final class Case(var label: Int) extends InstrWithLabel {
 }
 
 private [internal] object NegLookFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val reached = ctx.offset
         // Recover the previous state; notFollowedBy NEVER consumes input
@@ -218,7 +214,7 @@ private [internal] object NegLookFail extends Instr with RefailInstr {
 }
 
 private [internal] object NegLookGood extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         // Recover the previous state; notFollowedBy NEVER consumes input
         ctx.restoreState()
@@ -227,7 +223,7 @@ private [internal] object NegLookGood extends Instr {
         // A failure is what we wanted
         ctx.good = true
         ctx.errs = ctx.errs.tail
-        true
+        ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = "NegLookGood"
@@ -240,9 +236,9 @@ private [internal] object NegLookGood extends Instr {
 
 private [internal] object Eof extends Instr {
     private [this] final val expected = Some(EndOfInput)
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        if (ctx.offset == ctx.inputsz) true
+        if (ctx.offset == ctx.inputsz) ctx.inc()
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
     // $COVERAGE-OFF$
@@ -251,10 +247,10 @@ private [internal] object Eof extends Instr {
 }
 
 private [internal] final class Modify(reg: Int, f: Any => Any) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, f(ctx.regs(reg)))
-        true
+        ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Modify($reg, f)"
@@ -267,10 +263,10 @@ private [internal] object Modify {
 }
 
 private [internal] final class SwapAndPut(reg: Int) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, ctx.stack.peekAndExchange(ctx.stack.upop()))
-        true
+        ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = s"SwapAndPut(r$reg)"
@@ -289,14 +285,13 @@ private [instructions] abstract class FilterLike extends Instr {
         this
     }
 
-    final def carryOn(ctx: Context): Boolean = {
+    final def carryOn(ctx: Context): Unit = {
         ctx.states = ctx.states.tail
         ctx.handlers = ctx.handlers.tail
         ctx.pc = good
-        false
     }
 
-    final def fail(ctx: Context, x: Any): Boolean = {
+    final def fail(ctx: Context, x: Any): Unit = {
         ctx.handlers.pc = bad
         ctx.exchangeAndContinue((x, ctx.offset - ctx.states.offset))
     }
@@ -313,7 +308,7 @@ private [instructions] abstract class FilterLike extends Instr {
 private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {
     private [this] val pred = _pred.asInstanceOf[Any => Boolean]
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         if (pred(x)) carryOn(ctx)
@@ -328,7 +323,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
 private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: Int, var bad: Int) extends FilterLike {
     private [this] val pred = _pred.asInstanceOf[Any => Option[B]]
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val opt = pred(x)
@@ -348,14 +343,14 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
 private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr {
     private [this] val pred = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val state = ctx.states
         ctx.states = state.tail
         ctx.handlers = ctx.handlers.tail
         pred.applyOrElse(x, FilterPartial.orNull) match {
-            case null => true
+            case null => ctx.inc()
             case (unex, reason) =>
                 val caretWidth = ctx.offset - state.offset
                 val err = unex.makeError(state.offset, state.line, state.col, caretWidth)
@@ -375,7 +370,7 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
 private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq[String], B]) extends Instr {
     private [this] val pred = f.asInstanceOf[Any => Either[Seq[String], Any]]
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val state = ctx.states

@@ -127,9 +127,7 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
     @tailrec private def go[Err: ErrorBuilder, A](): Result[Err, A] = {
         // println(pretty)
         if (running) { // this is the likeliest branch, so should be executed with fewest comparisons
-            if (instrs(pc)(this)) {
-                pc += 1
-            }
+            instrs(pc)(this)
             go[Err, A]()
         }
         else if (good) {
@@ -148,27 +146,24 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
         }
     }
 
-    private [machine] def call(newInstrs: Array[Instr]): Boolean = {
+    private [machine] def call(newInstrs: Array[Instr]): Unit = {
         call(0)
         instrs = newInstrs
-        false
     }
 
-    private [machine] def call(at: Int): Boolean = {
+    private [machine] def call(at: Int): Unit = {
         calls = new CallStack(pc + 1, instrs, at, calls)
         pc = at
-        false
     }
 
-    private[machine] def ret(): Boolean = {
+    private [machine] def ret(): Unit = {
         assert(calls != null, "cannot return when no calls are made")
         instrs = calls.instrs
         pc = calls.ret
         calls = calls.tail
-        false
     }
 
-    private [machine] def catchNoConsumed(check: Int)(handler: =>Boolean): Boolean = {
+    private [machine] def catchNoConsumed(check: Int)(handler: =>Unit): Unit = {
         assert(!good, "catching can only be performed in a handler")
         if (offset != check) {
             handlers = handlers.tail
@@ -190,34 +185,29 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
         }
     }
 
-    private[machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Boolean = {
-        this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs *))
+    private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Unit = {
+        this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs*))
     }
-
-    private[machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Boolean = {
+    private [machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Unit = {
         this.fail(new UnexpectedError(offset, line, col, expected, unexpected))
     }
-
-    private[machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Boolean = {
+    private [machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Unit = {
         this.fail(new ExpectedError(offset, line, col, expected, unexpectedWidth))
     }
-
-    private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Boolean = {
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Unit = {
         this.fail(new ExpectedErrorWithReason(offset, line, col, expected, reason, unexpectedWidth))
     }
-
-    private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Boolean = {
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Unit = {
         if (reason.isEmpty) this.expectedFail(expected, unexpectedWidth)
         else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
     }
 
-    private [machine] def fail(error: DefuncError): Boolean = {
+    private [machine] def fail(error: DefuncError): Unit = {
         good = false
         this.pushError(error)
         this.fail()
-        false
     }
-    private [machine] def fail(): Boolean = {
+    private [machine] def fail(): Unit = {
         assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
         if (handlers.isEmpty) running = false
         else {
@@ -228,20 +218,22 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
             val diffstack = stack.usize - handler.stacksz
             if (diffstack > 0) stack.drop(diffstack)
         }
-        false
     }
 
-    private [machine] def pushAndContinue(x: Any): Boolean = {
+    private [machine] def pushAndContinue(x: Any) = {
         stack.push(x)
-        true
+        inc()
     }
     private [machine] def unsafePushAndContinue(x: Any) = {
         stack.upush(x)
-        true
+        inc()
     }
     private [machine] def exchangeAndContinue(x: Any) = {
         stack.exchange(x)
-        true
+        inc()
+    }
+    private [machine] def inc(): Unit = {
+        pc += 1
     }
     private [machine] def peekChar: Char = input.charAt(offset)
     private [machine] def peekChar(lookAhead: Int): Char = input.charAt(offset + lookAhead)

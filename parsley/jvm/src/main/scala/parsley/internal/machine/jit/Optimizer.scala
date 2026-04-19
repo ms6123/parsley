@@ -36,12 +36,12 @@ object Optimizer {
         val sharedHandlers = chunkStart until instrs.length
 
         for (func <- functions) {
-            for (instr <- func.instrs if !instr.isInstanceOf[Call]) {
+            for (instr <- func.instrs) {
                 instr.relabel(_ - func.start)
             }
 
             val copiedHandlers = mutable.Map.empty[Instr, Int]
-            for (instr <- func.instrs.clone() if !instr.isInstanceOf[Call]; label <- instr.labels if label >= func.end) {
+            for (instr <- func.instrs.clone(); label <- instr.labels if label >= func.end) {
                 val foreignTarget = instrs(label + func.start)
                 require(foreignTarget.isInstanceOf[RefailInstr])
 
@@ -99,7 +99,7 @@ object Optimizer {
         }
     }
 
-    private case class ParserFunction(start: Int, end: Int, instrs: mutable.IndexedBuffer[Instr]) {
+    private class ParserFunction(start: Int, end: Int, instrs: mutable.IndexedBuffer[Instr]) {
         def build(ctx: ClassGenContext): Instr =
             if (instrs.lengthIs == 1) {
                 instrs.head

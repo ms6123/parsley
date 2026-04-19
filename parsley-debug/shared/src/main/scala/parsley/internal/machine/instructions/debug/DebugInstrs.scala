@@ -18,7 +18,7 @@ import parsley.internal.machine.stacks.Stack.StackExt
 
 // Enter into the scope of a parser in the current context.
 private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isIterative: Boolean, userAssignedName: Option[String])(dbgCtx: DebugContext) extends InstrWithLabel {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         // Uncomment to debug entries and exits.
         // println(s"Entering ${origin.prettyName} (@ ${ctx.pc} -> Exit @ $label)")
@@ -28,7 +28,7 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
         // Using my own state tracker instead.
         dbgCtx.pushPos(ctx.offset, ctx.line, ctx.col)
         ctx.pushHandler(label) // Mark the AddAttempt instruction as an exit handler.
-        true
+        ctx.inc()
     }
 
     // $COVERAGE-OFF$
@@ -43,7 +43,7 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
 // Add a parse attempt to the current context at the current callstack point, and leave the current
 // parser's scope.
 private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         // Uncomment to debug entries and exits.
         // println(s"Leaving ${if (ctx.good) "OK" else "FAIL" } (@ ${ctx.pc})")
 
@@ -73,7 +73,7 @@ private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr 
 
         // Fail if the current context is not good, as required by how Parsley's machine functions.
         ctx.handlers = ctx.handlers.tail
-        if (success) true else ctx.fail()
+        if (success) ctx.inc() else ctx.fail()
     }
 
     // $COVERAGE-OFF$
@@ -86,13 +86,13 @@ private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr 
 }
 
 private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], userAssignedName: Option[String])(dtx: DivergenceContext) extends InstrWithLabel {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val handler = ctx.handlers
         ctx.pushHandler(label)
         val ctxSnap = dtx.CtxSnap(ctx.pc, ctx.instrs, ctx.offset, ctx.regs.toList)
         dtx.takeSnapshot(origin, userAssignedName, ctxSnap, if (handler.isEmpty) None else Some(dtx.HandlerSnap(handler.pc, handler.instrs)))
-        true
+        ctx.inc()
     }
 
     // $COVERAGE-OFF$
@@ -105,10 +105,10 @@ private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], us
 }
 
 private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         dtx.dropSnapshot()
         ctx.handlers = ctx.handlers.tail
-        if (ctx.good) true else ctx.fail()
+        if (ctx.good) ctx.inc() else ctx.fail()
     }
 
     // $COVERAGE-OFF$
@@ -122,7 +122,7 @@ private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr {
 
 private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolean, refs: RefCodec*) extends Instr {
 
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         // Encode ref using associated Codec
         def encode[A](refCodec: RefCodec) = refCodec.codec.encode(ctx.regs(refCodec.ref.addr).asInstanceOf[refCodec.A])
 
@@ -140,7 +140,7 @@ private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolea
             decoded <- rc.codec.decode(refVal)
         } ctx.writeReg(refAddr, decoded)
 
-        true
+        ctx.inc()
     }
 
     // $COVERAGE-OFF$

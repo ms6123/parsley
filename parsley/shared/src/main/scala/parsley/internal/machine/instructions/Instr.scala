@@ -10,7 +10,7 @@ import parsley.internal.machine.Context
 import org.typelevel.scalaccompat.annotation.unused
 
 private [internal] abstract class Instr {
-    def apply(ctx: Context): Boolean
+    def apply(ctx: Context): Unit
     def relabel(@unused labels: Int => Int): this.type = this
     // Instructions should override this if they have mutable state inside!
     def copy: Instr = this
@@ -40,7 +40,7 @@ private [internal] abstract class InstrWithLabel extends Instr {
 // It's 2018 and Labels are making a come-back, along with 2 pass assembly
 private [internal] final class Label(val i: Int) extends Instr {
     // $COVERAGE-OFF$
-    def apply(ctx: Context): Boolean = throw new Exception("Cannot execute label") // scalastyle:ignore throw
+    def apply(ctx: Context): Unit = throw new Exception("Cannot execute label") // scalastyle:ignore throw
     // $COVERAGE-ON$
 }
 

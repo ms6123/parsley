@@ -13,7 +13,7 @@ import parsley.internal.machine.XAssert.*
 
 private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr {
     def this(f: Char => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) ctx.pushAndContinue(ctx.consumeChar())
         else ctx.expectedFail(expected, unexpectedWidth = 1)
@@ -24,7 +24,7 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
 }
 
 private [internal] object RestoreAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         // Pop input off head then fail to next handler
@@ -37,12 +37,12 @@ private [internal] object RestoreAndFail extends Instr with RefailInstr {
 }
 
 private [internal] object RestoreHintsAndState extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.restoreHints()
         ctx.restoreState()
         ctx.handlers = ctx.handlers.tail
-        true
+        ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = "RestoreHintsAndState"
@@ -54,7 +54,7 @@ private [internal] object RestoreHintsAndState extends Instr {
 }
 
 private [internal] object PopStateAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.states = ctx.states.tail
@@ -66,7 +66,7 @@ private [internal] object PopStateAndFail extends Instr with RefailInstr {
 }
 
 private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         ctx.handlers = ctx.handlers.tail
@@ -80,7 +80,7 @@ private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailI
 
 // Position Extractors
 private [internal] object Line extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(ctx.line)
     }
@@ -92,7 +92,7 @@ private [internal] object Line extends Instr {
 }
 
 private [internal] object Col extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(ctx.col)
     }
@@ -104,7 +104,7 @@ private [internal] object Col extends Instr {
 }
 
 private [internal] object Offset extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(ctx.offset)
     }
@@ -117,7 +117,7 @@ private [internal] object Offset extends Instr {
 
 // Register-Manipulators
 private [internal] final class Get(reg: Int) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.pushAndContinue(ctx.regs(reg))
     }
@@ -129,10 +129,10 @@ private [internal] final class Get(reg: Int) extends Instr {
 }
 
 private [internal] final class Put(reg: Int) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, ctx.stack.upop())
-        true
+        ctx.inc()
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Put(r$reg)"
@@ -142,7 +142,7 @@ private [internal] final class Put(reg: Int) extends Instr {
 }
 
 private [internal] final class PutAndFail(reg: Int) extends Instr with RefailInstr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
         ctx.writeReg(reg, ctx.stack.upeek)
@@ -154,7 +154,7 @@ private [internal] final class PutAndFail(reg: Int) extends Instr with RefailIns
 }
 
 private [internal] object Span extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         // this uses the state stack because post #132 we will need a save point to obtain the start of the input
         ensureRegularInstruction(ctx)
         val startOffset = ctx.states.offset
@@ -172,11 +172,11 @@ private [internal] object Span extends Instr {
 }
 
 private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         if (newSz > ctx.regs.size) {
             ctx.regs = java.util.Arrays.copyOf(ctx.regs, newSz)
         }
-        true
+        ctx.inc()
     }
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None

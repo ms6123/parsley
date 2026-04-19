@@ -20,12 +20,12 @@ import parsley.internal.machine.instructions.Instr
 private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr {
     def this(escTrie: Trie[Int], escs: Set[String]) = this(escTrie, escs.view.map(_.length).max, escs.map(new ExpectRaw(_)))
     // Do not consume input on failure, it's possible another escape sequence might share a lead
-    override def apply(ctx: Context): Boolean = {
+    override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         findFirst(ctx, 0, escTrie)
     }
 
-    @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Boolean = {
+    @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Unit = {
         val (nextLongestChar, nextLongestSz) = escs.get("") match {
             case Some(x) => (x, off)
             case None => (longestChar, longestSz)
@@ -38,7 +38,7 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
         }
     }
 
-    @tailrec private def findFirst(ctx: Context, off: Int, escs: Trie[Int]): Boolean = {
+    @tailrec private def findFirst(ctx: Context, off: Int, escs: Trie[Int]): Unit = {
         lazy val escsNew = escs.suffixes(ctx.peekChar(off))
         val couldTryMore = ctx.moreInput(off + 1) && escsNew.nonEmpty
         escs.get("") match {
@@ -90,7 +90,7 @@ private [token] object EscapeSomeNumber {
 }
 
 private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSomeNumber(radix) {
-    override def apply(ctx: Context): Boolean = someNumber(ctx, n) match {
+    override def apply(ctx: Context): Unit = someNumber(ctx, n) match {
         case EscapeSomeNumber.Good(num) =>
             assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
             ctx.pushAndContinue(num)
@@ -107,7 +107,7 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
 
 private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], inexactErr: SpecializedFilterConfig[Int]) extends EscapeSomeNumber(radix) {
     private val (m :: ms) = ns: @unchecked
-    def apply(ctx: Context): Boolean = {
+    def apply(ctx: Context): Unit = {
         val origOff = ctx.offset
         val origLine = ctx.line
         val origCol = ctx.col
