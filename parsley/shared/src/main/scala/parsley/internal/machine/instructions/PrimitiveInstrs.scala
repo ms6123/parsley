@@ -23,7 +23,7 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
     // $COVERAGE-ON$
 }
 
-private [internal] object RestoreAndFail extends Instr {
+private [internal] object RestoreAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -47,9 +47,13 @@ private [internal] object RestoreHintsAndState extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "RestoreHintsAndState"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] object PopStateAndFail extends Instr {
+private [internal] object PopStateAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -61,7 +65,7 @@ private [internal] object PopStateAndFail extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] object PopStateRestoreHintsAndFail extends Instr {
+private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
@@ -83,6 +87,8 @@ private [internal] object Line extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Line"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] object Col extends Instr {
@@ -93,6 +99,8 @@ private [internal] object Col extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Col"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] object Offset extends Instr {
@@ -103,6 +111,8 @@ private [internal] object Offset extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Offset"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 // Register-Manipulators
@@ -114,6 +124,8 @@ private [internal] final class Get(reg: Int) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"Get(r$reg)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class Put(reg: Int) extends Instr {
@@ -125,9 +137,11 @@ private [internal] final class Put(reg: Int) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"Put(r$reg)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] final class PutAndFail(reg: Int) extends Instr {
+private [internal] final class PutAndFail(reg: Int) extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -151,6 +165,10 @@ private [internal] object Span extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Span"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
@@ -160,4 +178,6 @@ private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
         }
         true
     }
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }

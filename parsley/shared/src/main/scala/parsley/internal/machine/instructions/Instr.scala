@@ -15,7 +15,16 @@ private [internal] abstract class Instr {
     // Instructions should override this if they have mutable state inside!
     def copy: Instr = this
 
-    def labels(pos: Int): Seq[Int] = Seq.empty
+    def labels: Seq[Int] = Seq.empty
+
+    def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers)
+    def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers)
+    def jumpPaths(@unused handlers: List[Int]): Seq[(List[Int], Int)] = Seq.empty
+
+    final def allPaths(handlers: List[Int], pos: Int): Seq[(List[Int], Int)] =
+        fallThroughPath(handlers).map(_ -> (pos + 1)).toSeq ++
+            failPath(handlers).map(newHandlers => newHandlers -> newHandlers.head).toSeq ++
+            jumpPaths(handlers)
 }
 
 private [internal] abstract class InstrWithLabel extends Instr {
@@ -25,7 +34,7 @@ private [internal] abstract class InstrWithLabel extends Instr {
         this
     }
 
-    override def labels(pos: Int): Seq[Int] = Seq(label)
+    override def labels: Seq[Int] = Seq(label)
 }
 
 // It's 2018 and Labels are making a come-back, along with 2 pass assembly
@@ -33,4 +42,12 @@ private [internal] final class Label(val i: Int) extends Instr {
     // $COVERAGE-OFF$
     def apply(ctx: Context): Boolean = throw new Exception("Cannot execute label") // scalastyle:ignore throw
     // $COVERAGE-ON$
+}
+
+private [internal] trait RefailInstr {
+    this: Instr =>
+
+    final override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+
+    final override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }

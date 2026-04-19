@@ -208,7 +208,9 @@ private [deepembedding] object StrictParsley {
         val size = findLabels(instrsOversize, labelMapping, instrs.length, 0, 0)
         val instrs_ = new Array[Instr](size)
         applyLabels(instrsOversize, labelMapping, instrs_, instrs_.length, 0, 0)
-        tco(instrs_, labelMapping, retLocs)
+        if (Optimizer.useTco) {
+            tco(instrs_, labelMapping, retLocs)
+        }
         Optimizer.optimize(instrs_)
     }
 

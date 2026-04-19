@@ -34,6 +34,10 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
     // $COVERAGE-OFF$
     override def toString: String = s"EnterParser(exit: $label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 // Add a parse attempt to the current context at the current callstack point, and leave the current
@@ -75,6 +79,10 @@ private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr 
     // $COVERAGE-OFF$
     override def toString: String = "AddAttemptAndLeave"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], userAssignedName: Option[String])(dtx: DivergenceContext) extends InstrWithLabel {
@@ -90,6 +98,10 @@ private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], us
     // $COVERAGE-OFF$
     override def toString: String = s"TakeSnapshot(until: $label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr {
@@ -102,6 +114,10 @@ private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "DropSnapshot"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolean, refs: RefCodec*) extends Instr {
@@ -130,4 +146,6 @@ private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolea
     // $COVERAGE-OFF$
     override def toString: String = "TriggerBreakpoint"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }

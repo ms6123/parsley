@@ -26,6 +26,8 @@ private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Lift2(f)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 private [internal] object Lift2 {
     def apply[A, B, C](f: (A, B) => C): Lift2 = new Lift2(f.asInstanceOf[(Any, Any) => Any])
@@ -41,6 +43,8 @@ private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Lift3(f)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 private [internal] object Lift3 {
     def apply[A, B, C, D](f: (A, B, C) => D): Lift3 = new Lift3(f.asInstanceOf[(Any, Any, Any) => Any])
@@ -171,6 +175,10 @@ private [internal] final class If(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"If(true: $label)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 private [internal] final class Case(var label: Int) extends InstrWithLabel {
@@ -187,9 +195,13 @@ private [internal] final class Case(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Case(left: $label)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
-private [internal] object NegLookFail extends Instr {
+private [internal] object NegLookFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureRegularInstruction(ctx)
         val reached = ctx.offset
@@ -220,6 +232,10 @@ private [internal] object NegLookGood extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "NegLookGood"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] object Eof extends Instr {
@@ -243,6 +259,8 @@ private [internal] final class Modify(reg: Int, f: Any => Any) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"Modify($reg, f)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 private [internal] object Modify {
     def apply[S](reg: Int, f: S => S): Modify = new Modify(reg, f.asInstanceOf[Any => Any])
@@ -257,6 +275,8 @@ private [internal] final class SwapAndPut(reg: Int) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"SwapAndPut(r$reg)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [instructions] abstract class FilterLike extends Instr {
@@ -281,7 +301,13 @@ private [instructions] abstract class FilterLike extends Instr {
         ctx.exchangeAndContinue((x, ctx.offset - ctx.states.offset))
     }
 
-    final override def labels(pos: Int): Seq[Int] = Seq(good, bad)
+    final override def labels: Seq[Int] = Seq(good, bad)
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(bad :: handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> good)
 }
 
 private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {
@@ -340,6 +366,10 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
     // $COVERAGE-OFF$
     override def toString: String = s"FilterPartialVanilla(?)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq[String], B]) extends Instr {
@@ -362,6 +392,10 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
     // $COVERAGE-OFF$
     override def toString: String = s"FilterPartialSpecialized(?)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [instructions] object FilterPartial {

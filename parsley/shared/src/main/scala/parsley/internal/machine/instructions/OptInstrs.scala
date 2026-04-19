@@ -25,6 +25,8 @@ private [internal] final class Lift1(f: Any => Any) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "Perform(?)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 private [internal] object Lift1 {
     def apply[A, B](f: A => B): Lift1 = new Lift1(f.asInstanceOf[Any => Any])
@@ -38,6 +40,8 @@ private [internal] final class Exchange[A](private [Exchange] val x: A) extends 
     // $COVERAGE-OFF$
     override def toString: String = s"Ex($x)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr {
@@ -68,6 +72,10 @@ private [internal] final class RecoverWith[A](x: A) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"RecoverWith($x)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
@@ -83,6 +91,10 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = s"AlwaysRecoverWith($x)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] sealed abstract class JumpTablePreds {
@@ -193,7 +205,15 @@ private [internal] final class JumpTable
     override def toString: String = s"JumpTable($jumpTable, _ -> $default, $merge)"
     // $COVERAGE-ON$
 
-    override def labels(pos: Int): Seq[Int] = jumpTable.labels :+ default :+ merge :+ defaultPreamble
+    override def labels: Seq[Int] = defaultPreamble +: merge +: default +: jumpTable.labels
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] =
+        ((merge :: handlers) -> default) +:
+            jumpTable.labels.map((merge :: defaultPreamble :: handlers) -> _)
 }
 private [instructions] object JumpTable {
     private val checkDefined = (_: Any) => null

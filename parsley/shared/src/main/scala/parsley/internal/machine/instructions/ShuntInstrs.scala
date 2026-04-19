@@ -231,7 +231,16 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         this
     }
 
-    override def labels(pos: Int): Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel)
+    override def labels: Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel)
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(
+        handlers -> prefixAtomLabel,
+        handlers -> postfixInfixLabel,
+    )
 
     override def toString: String = s"Shunt(Prefix/Atom: $prefixAtomLabel, Postfix/Infix: $postfixInfixLabel)"
 }

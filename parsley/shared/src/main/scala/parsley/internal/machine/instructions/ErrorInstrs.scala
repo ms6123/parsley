@@ -23,9 +23,13 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
     // $COVERAGE-OFF$
     override def toString: String = s"RelabelHints($labels)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) extends Instr {
+private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         // this has the effect of relabelling all hints since the start of the label combinator
@@ -55,10 +59,14 @@ private [internal] object HideHints extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "HideHints"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 // FIXME: Gigaparsec points out the hints aren't being used here, I believe they should be!
-private [internal] object HideErrorAndFail extends Instr {
+private [internal] object HideErrorAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
@@ -82,9 +90,13 @@ private [internal] object ErrorToHints extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "ErrorToHints"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] object MergeErrorsAndFail extends Instr {
+private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -99,7 +111,7 @@ private [internal] object MergeErrorsAndFail extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] class ApplyReasonAndFail(reason: String) extends Instr {
+private [internal] class ApplyReasonAndFail(reason: String) extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.errs.error = ctx.errs.error.withReason(reason, ctx.handlers.check)
@@ -112,7 +124,7 @@ private [internal] class ApplyReasonAndFail(reason: String) extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] class AmendAndFail private (partial: Boolean) extends Instr {
+private [internal] class AmendAndFail private (partial: Boolean) extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
@@ -132,7 +144,7 @@ private [internal] object AmendAndFail {
     def apply(partial: Boolean): AmendAndFail = if (partial) this.partial else this.full
 }
 
-private [internal] object EntrenchAndFail extends Instr {
+private [internal] object EntrenchAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -145,7 +157,7 @@ private [internal] object EntrenchAndFail extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] class DislodgeAndFail(n: Int) extends Instr {
+private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
@@ -158,7 +170,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] object SetLexicalAndFail extends Instr {
+private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Boolean = {
         ensureHandlerInstruction(ctx)
         ctx.errs.error = ctx.errs.error.markAsLexical(ctx.handlers.check)
@@ -179,6 +191,8 @@ private [internal] final class Fail(width: CaretWidth, msgs: String*) extends In
     // $COVERAGE-OFF$
     override def toString: String = s"Fail(${msgs.mkString(", ")})"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class Unexpected(msg: String, width: CaretWidth) extends Instr {
@@ -190,6 +204,8 @@ private [internal] final class Unexpected(msg: String, width: CaretWidth) extend
     // $COVERAGE-OFF$
     override def toString: String = s"Unexpected($msg)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) extends Instr {
@@ -206,6 +222,8 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
     // $COVERAGE-OFF$
     override def toString: String = "VanillaGen"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class SpecializedGen[A](gen: parsley.errors.SpecializedGen[A]) extends Instr {
@@ -219,4 +237,6 @@ private [internal] final class SpecializedGen[A](gen: parsley.errors.Specialized
     // $COVERAGE-OFF$
     override def toString: String = "SpecializedGen"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 }

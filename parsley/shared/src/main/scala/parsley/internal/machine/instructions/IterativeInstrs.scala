@@ -31,6 +31,12 @@ private [internal] final class Many(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Many($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 // TODO: Factor these handlers out!
@@ -51,6 +57,12 @@ private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"SkipMany($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 private [internal] final class ChainPost(var label: Int) extends InstrWithLabel {
@@ -72,6 +84,12 @@ private [internal] final class ChainPost(var label: Int) extends InstrWithLabel 
     // $COVERAGE-OFF$
     override def toString: String = s"ChainPost($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 private final class AndThen[-A, B, +C](f: A => B, g: B => C) extends (A => C) {
@@ -100,6 +118,12 @@ private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"ChainPre($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
@@ -122,6 +146,12 @@ private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Chainl($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 
 private [internal] final class ROps(val op: (Any, Any) => Any, val lx: Any, val rest: ROps)
@@ -147,6 +177,12 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
     // $COVERAGE-OFF$
     override def toString: String = s"ChainrJump($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
 }
 
 private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
@@ -163,6 +199,10 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "ChainrOpHandler"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 private [internal] object ChainrOpHandler  {
     def apply[A, B](wrap: A => B): ChainrOpHandler = new ChainrOpHandler(wrap.asInstanceOf[Any => Any])
@@ -185,6 +225,12 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
     // $COVERAGE-OFF$
     override def toString: String = s"SepEndBy1Jump($label)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
 }
 
 private [instructions] object SepEndBy1Handlers {
@@ -216,6 +262,10 @@ private [internal] object SepEndBy1SepHandler extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "SepEndBy1SepHandler"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] object SepEndBy1WholeHandler extends Instr {
@@ -230,6 +280,10 @@ private [internal] object SepEndBy1WholeHandler extends Instr {
     // $COVERAGE-OFF$
     override def toString: String = "SepEndBy1WholeHandler"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel {
@@ -246,6 +300,10 @@ private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel 
     // $COVERAGE-OFF$
     override def toString: String = s"ManyUntil($label)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }
 private [parsley] object ManyUntil {
     object Stop
@@ -264,4 +322,8 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
     // $COVERAGE-OFF$
     override def toString: String = s"SkipManyUntil($label)"
     // $COVERAGE-ON$
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+
+    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
 }

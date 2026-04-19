@@ -111,6 +111,10 @@ private [internal] final class LogBegin(var label: Int, override val name: Strin
         true
     }
     override def toString: String = s"LogBegin($label, $name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with Logger {
@@ -132,6 +136,10 @@ private [internal] final class LogEnd(val name: String, val ascii: Boolean, brea
         ctx.good
     }
     override def toString: String = s"LogEnd($name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 private [instructions] trait ErrLogger extends PrettyPortal with Colours {
@@ -172,6 +180,10 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
         true
     }
     override def toString: String = s"LogErrBegin($label, $name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class LogErrEnd(override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
@@ -217,6 +229,10 @@ private [internal] final class LogErrEnd(override val name: String, override val
         }
     }
     override def toString: String = s"LogErrEnd($name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 private [instructions] object LogErrEnd {
     // TODO: We want to mark errors that are behind the current context offsets as amended in some way
@@ -247,6 +263,10 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
     }
 
     override def toString: String = s"ProfileEnter($label, $name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
 private [internal] final class ProfileExit(name: String, profiler: Profiler) extends Instr {
@@ -259,6 +279,10 @@ private [internal] final class ProfileExit(name: String, profiler: Profiler) ext
     }
 
     override def toString: String = s"ProfileExit($name)"
+
+    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+
+    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
 // $COVERAGE-ON$
