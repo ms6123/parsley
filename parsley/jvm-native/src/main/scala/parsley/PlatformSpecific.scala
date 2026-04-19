@@ -48,7 +48,7 @@ trait PlatformSpecific {
             } yield {
                 src.close()
                 val internal = p.internal
-                new Context(internal.instrs, input, internal.numRefs, Some(file.getName)).run()
+                new Context(internal.runner, input, internal.numRefs, Some(file.getName)).run()
             }
         }
     }

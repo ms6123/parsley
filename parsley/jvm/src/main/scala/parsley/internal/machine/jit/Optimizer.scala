@@ -2,20 +2,18 @@ package parsley.internal.machine.jit
 
 import scala.collection.mutable
 
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
-
-import org.objectweb.asm.{Label, Opcodes, Type}
 
 private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "false").toBoolean
 private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
 
 object Optimizer {
     val useTco = false
-    
-    def optimize(instrs: Array[Instr]): Array[Instr] = {
+
+    def optimize(instrs: Array[Instr]): ParseRunner = {
         if (!IS_ENABLED) {
-            return instrs
+            return Context.interpreterRunner(instrs)
         }
 
         def isFunctionTerminator(instr: Instr): Boolean = instr match {
@@ -23,44 +21,43 @@ object Optimizer {
             case _ => false
         }
 
-        val functions = mutable.ArrayBuffer[ParserFunction]()
+        val functionRanges = mutable.ArrayBuffer[Range]()
         var chunkStart = 0
 
         for (i <- instrs.indices) {
             if (isFunctionTerminator(instrs(i))) {
-                functions += ParserFunction(chunkStart, i + 1, mutable.ArrayBuffer.from(instrs.view.slice(chunkStart, i + 1)))
+                functionRanges += chunkStart to i
                 chunkStart = i + 1
             }
         }
 
-        val sharedHandlers = chunkStart until instrs.length
-
-        for (func <- functions) {
-            for (instr <- func.instrs) {
-                instr.relabel(_ - func.start)
+        val functions = functionRanges.map { funcRange =>
+            for (i <- funcRange) {
+                instrs(i).relabel(_ - funcRange.start)
             }
 
+            val funcInstrs = mutable.ArrayBuffer.from(instrs.view.slice(funcRange.start, funcRange.last + 1))
             val copiedHandlers = mutable.Map.empty[Instr, Int]
-            for (instr <- func.instrs.clone(); label <- instr.labels if label >= func.end) {
-                val foreignTarget = instrs(label + func.start)
+
+            for (instr <- funcRange.map(instrs); label <- instr.labels if label >= funcRange.last) {
+                val foreignTarget = instrs(label + funcRange.start)
                 require(foreignTarget.isInstanceOf[RefailInstr])
 
                 val copiedIndex = copiedHandlers.getOrElseUpdate(foreignTarget, {
-                    func.instrs += foreignTarget
-                    func.instrs.indices.last
+                    funcInstrs += foreignTarget
+                    funcInstrs.indices.last
                 })
                 instr.relabel(it => if (it == label) copiedIndex else it)
             }
 
-            val successorInfos = determineSuccessors(func)
-            println()
+            ParserFunction(funcInstrs.toArray, determineSuccessors(funcInstrs))
         }
 
-        instrs
+        ???
     }
 
-    private def determineSuccessors(func: ParserFunction): Array[SuccessorInfo] = {
-        val visited = Array.fill(func.instrs.length)(mutable.Set.empty[List[Int]])
+    private def determineSuccessors(instrs: mutable.ArrayBuffer[Instr]): Array[SuccessorInfo] = {
+        val visited = Array.fill(instrs.length)(mutable.Set.empty[List[Int]])
         val toVisit = mutable.Queue(List(-1) -> 0)
 
         visited(0) += List(-1)
@@ -68,74 +65,15 @@ object Optimizer {
         while (toVisit.nonEmpty) {
             val (handlers, pos) = toVisit.dequeue()
 
-            for ((nextHandlers, nextPos) <- func.instrs(pos).allPaths(handlers, pos)) {
+            for ((nextHandlers, nextPos) <- instrs(pos).allPaths(handlers, pos)) {
                 if (nextPos != -1 && visited(nextPos).add(nextHandlers)) {
                     toVisit.enqueue(nextHandlers -> nextPos)
                 }
             }
         }
 
-        func.instrs.view.zip(visited).zipWithIndex.map { case ((instr, possibleHandlers), pos) =>
+        instrs.view.zip(visited).zipWithIndex.map { case ((instr, possibleHandlers), pos) =>
             SuccessorInfo(instr, possibleHandlers, pos)
         }.toArray
-    }
-
-    private case class SuccessorInfo(goodPaths: Set[Int], badPaths: Set[Int])
-
-    private object SuccessorInfo {
-        def apply(instr: Instr, possibleHandlers: Iterable[List[Int]], pos: Int): SuccessorInfo = {
-            val goodPaths = Set.newBuilder[Int]
-            val badPaths = Set.newBuilder[Int]
-
-            for (handlers <- possibleHandlers) {
-                if (instr.fallThroughPath(handlers).isDefined) {
-                    goodPaths += (pos + 1)
-                }
-                goodPaths ++= instr.jumpPaths(handlers).map(_._2)
-                badPaths ++= instr.failPath(handlers).map(_.head)
-            }
-
-            SuccessorInfo(goodPaths.result(), badPaths.result())
-        }
-    }
-
-    private class ParserFunction(start: Int, end: Int, instrs: mutable.IndexedBuffer[Instr]) {
-        def build(ctx: ClassGenContext): Instr =
-            if (instrs.lengthIs == 1) {
-                instrs.head
-            } else {
-                ctx.newClass(Opcodes.ACC_PUBLIC, GEN_PACKAGE + s"BasicBlock$start", Type.getInternalName(classOf[Instr])) { visitor =>
-                    buildClass(visitor)
-                }.getConstructor().newInstance().asInstanceOf[Instr]
-            }
-
-        private def buildClass(visitor: ClassGenContext#ClassGenVisitor): Unit = {
-            {
-                val ctor = visitor.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null)
-                ctor.visitVarInsn(Opcodes.ALOAD, 0)
-                ctor.visitMethodInsn(Opcodes.INVOKESPECIAL, Type.getInternalName(classOf[Instr]), "<init>", "()V", false)
-                ctor.visitInsn(Opcodes.RETURN)
-                ctor.visitEnd()
-            }
-            {
-                val applyDesc = Type.getMethodDescriptor(classOf[Instr].getMethod("apply", classOf[Context]))
-                val apply = visitor.visitMethod(Opcodes.ACC_PUBLIC, "apply", applyDesc, null, null)
-                val divergedLabel = Label()
-                for (instr <- instrs) {
-                    apply.loadObject(instr)
-                    apply.visitVarInsn(Opcodes.ALOAD, 1)
-                    apply.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(classOf[Instr]), "apply", applyDesc, false)
-                    apply.visitJumpInsn(Opcodes.IFEQ, divergedLabel)
-                }
-                apply.visitInsn(Opcodes.ICONST_1)
-                apply.visitInsn(Opcodes.IRETURN)
-
-                apply.visitLabel(divergedLabel)
-                apply.visitInsn(Opcodes.ICONST_0)
-                apply.visitInsn(Opcodes.IRETURN)
-
-                apply.visitEnd()
-            }
-        }
     }
 }

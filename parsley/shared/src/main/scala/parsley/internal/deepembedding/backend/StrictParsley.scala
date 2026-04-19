@@ -12,8 +12,8 @@ import parsley.exceptions.CorruptedReferenceException
 import parsley.state.Ref
 import parsley.internal.collection.mutable.ResizableArray
 import parsley.internal.deepembedding.ContOps
-import ContOps.{ContAdapter, perform}
-import parsley.internal.machine.instructions
+import ContOps.{perform, ContAdapter}
+import parsley.internal.machine.{instructions, ParseRunner}
 import instructions.{Instr, Label}
 import StrictParsley.*
 import parsley.internal.machine.jit.Optimizer
@@ -45,11 +45,11 @@ private [deepembedding] trait StrictParsley[+A] {
       * @return the final array of instructions for this parser
       */
     final private [deepembedding] def generateInstructions[M[_, +_]: ContOps](minRef: Int, usedRefs: Set[Ref[?]], bodyMap: Map[Let[?], StrictParsley[?]])
-                                                                            (implicit state: CodeGenState): Array[Instr] = {
+                                                                            (implicit state: CodeGenState): ParseRunner = {
         implicit val instrs: InstrBuffer = newInstrBuffer
         perform {
             allocateAndExpandRefs(minRef, usedRefs)
-            this.codeGen[M, Array[Instr]](producesResults = true) |> {
+            this.codeGen[M, ParseRunner](producesResults = true) |> {
                 // When `minRef` is -1 this is top level, otherwise it is a flatMap
                 instrs += (if (minRef >= 0) instructions.Return else instructions.Halt)
                 val letRets = finaliseLets(bodyMap)
@@ -186,7 +186,7 @@ private [deepembedding] object StrictParsley {
       * @param retLocs the labels that point to return instructions within the instruction buffer (for TCO)
       * @return the final array of instructions
       */
-    private def finaliseInstrs(instrs: InstrBuffer, numLabels: Int, retLocs: List[RetLoc]): Array[Instr] = {
+    private def finaliseInstrs(instrs: InstrBuffer, numLabels: Int, retLocs: List[RetLoc]): ParseRunner = {
         @tailrec def findLabels(instrs: Array[Instr], labels: Array[Int], n: Int, i: Int, off: Int): Int = if (i + off < n) instrs(i + off) match {
             case label: Label =>
                 instrs(i + off) = null

@@ -11,10 +11,12 @@ import scala.collection.mutable
 import parsley.XAssert.*
 import parsley.state.Ref
 
-import parsley.internal.deepembedding.{Cont, ContOps, Id}, ContOps.{perform, result, ContAdapter}
-import parsley.internal.deepembedding.backend, backend.StrictParsley
+import parsley.internal.deepembedding.{Cont, ContOps, Id}
+import ContOps.{perform, result, ContAdapter}
+import parsley.internal.deepembedding.backend
+import backend.StrictParsley
 import parsley.internal.diagnostics.NullParserException
-import parsley.internal.machine.instructions, instructions.Instr
+import parsley.internal.machine.{instructions, ParseRunner}
 
 /** This is the root type of the parsley "frontend": it represents a combinator tree
   * where the join-points in the tree (recursive or otherwise) have not been identified
@@ -28,7 +30,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     // Public API
     // $COVERAGE-OFF$
     /** Force the parser, which eagerly computes its instructions immediately */
-    private [parsley] final def force(): Unit = instrs: @nowarn
+    private [parsley] final def force(): Unit = runner: @nowarn
     /** Denote that this parser is large enough that it might stack-overflow during
       * compilation: this allows for the slow path using `Cont` to be used immediately
       * instead of going through the (likely failing) `Id` path.
@@ -37,7 +39,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     // $COVERAGE-ON$
 
     // The instructions used to execute this parser along with the number of registers it uses
-    final private [parsley] lazy val (instrs: Array[Instr], numRefs: Int) = computeInstrs
+    final private [parsley] lazy val (runner: ParseRunner, numRefs: Int) = computeRunner
 
     /** This parser is the result of a `flatMap` operation, and as such may need to expand
       * the refs set. If so, it needs to know what the minimum free slot is according to
@@ -55,7 +57,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     // stack-space for heap-space. Each method is parameterised, however, by an ''abstract''
     // `Cont`, because in the event that a parser doesn't stack overflow under normal
     // execution, it is preferable to evaluate it under the much lighter-weight Identity
-    // Monad, or `Id`. The choice of monad is delegated to `computeInstrs`.
+    // Monad, or `Id`. The choice of monad is delegated to `computeRunner`.
     //
     // The frontend is split into two passes: the first identifies all the shared parsers
     // within the combinator tree; and the second factors these parsers out and converts
@@ -88,15 +90,15 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires in a (possibly) stack-safe way.
       */
-    final private def computeInstrs: (Array[Instr], Int) = {
-        if (cps) computeInstrs(Cont.ops) else computeInstrs(Id.ops)
+    final private def computeRunner: (ParseRunner, Int) = {
+        if (cps) computeRunner(Cont.ops) else computeRunner(Id.ops)
     }
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires within the context of a specific (unknown) monad.
       *
       * @param ops the instance for the monad to evaluate with
       */
-    final private def computeInstrs[M[_, +_]](ops: ContOps[M]): (Array[Instr], Int) = pipeline(ops)
+    final private def computeRunner[M[_, +_]](ops: ContOps[M]): (ParseRunner, Int) = pipeline(ops)
 
     /** Performs the full end-to-end pipeline through both the frontend and the backend.
       *
@@ -108,9 +110,9 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
       * @return the instructions associates with this parser as well as the number of
       *         registers it requires
       */
-    final private def pipeline[M[_, +_]: ContOps]: (Array[Instr], Int) = {
+    final private def pipeline[M[_, +_]: ContOps]: (ParseRunner, Int) = {
         implicit val letFinderState: LetFinderState = new LetFinderState
-        (perform[M, Array[Instr]] {
+        (perform[M, ParseRunner] {
             findLets(Set.empty) >> {
                 val usedRefs: Set[Ref[?]] = letFinderState.usedRefs
                 implicit val letMap: LetMap = LetMap(letFinderState.lets, letFinderState.recs)

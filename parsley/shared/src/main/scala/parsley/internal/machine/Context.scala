@@ -21,10 +21,12 @@ import parsley.internal.machine.errors.{ClassicFancyError, DefuncError, DefuncHi
 import instructions.Instr
 import stacks.{ArrayStack, CallStack, ErrorStack, HandlerStack, Stack, StateStack}, Stack.StackExt
 
-private [parsley] final class Context(private [machine] var instrs: Array[Instr],
+private [parsley] final class Context(private val runner: ParseRunner,
                                       private [machine] val input: String,
                                       numRegs: Int,
                                       private val sourceFile: Option[String]) {
+    private [machine] var instrs: Array[Instr] = _
+    
     /** This is the operand stack, where results go to live  */
     private [machine] val stack: ArrayStack[Any] = new ArrayStack()
     /** Current offset into the input */
@@ -123,14 +125,9 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
     }
     // $COVERAGE-ON$
 
-    private [parsley] def run[Err: ErrorBuilder, A](): Result[Err, A] = go[Err, A]()
-    @tailrec private def go[Err: ErrorBuilder, A](): Result[Err, A] = {
-        // println(pretty)
-        if (running) { // this is the likeliest branch, so should be executed with fewest comparisons
-            instrs(pc)(this)
-            go[Err, A]()
-        }
-        else if (good) {
+    private [parsley] def run[Err: ErrorBuilder, A](): Result[Err, A] = {
+        runner.run(this)
+        if (good) {
             assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
             assert(calls.isEmpty, "there must be no more calls to unwind on end of parser")
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
@@ -144,11 +141,6 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
             assert(states.isEmpty, "there must be no residual states left at end of parse")
             Failure(errs.error.asParseError.format(sourceFile))
         }
-    }
-
-    private [machine] def call(newInstrs: Array[Instr]): Unit = {
-        call(0)
-        instrs = newInstrs
     }
 
     private [machine] def call(at: Int): Unit = {
@@ -311,5 +303,21 @@ private [parsley] final class Context(private [machine] var instrs: Array[Instr]
         def codePointAt(offset: Int): Int = Context.this.input.codePointAt(offset)
         //def substring(offset: Int, size: Int): String = Context.this.input.substring(offset, Math.min(offset + size, Context.this.inputsz))
         def iterableFrom(offset: Int): IndexedSeq[Char] = Context.this.input.substring(offset)
+    }
+}
+
+private [parsley] object Context {
+    def interpreterRunner(instrs: Array[Instr]): ParseRunner = new ParseRunner {
+        override def run(ctx: Context): Unit = {
+            ctx.instrs = instrs
+            while (ctx.running) {
+                ctx.instrs(ctx.pc)(ctx)
+            }
+        }
+
+        override def dynCall(ctx: Context): Unit = {
+            ctx.call(0)
+            ctx.instrs = instrs
+        }
     }
 }
