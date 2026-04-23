@@ -111,7 +111,7 @@ private [internal] object Halt extends Instr {
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] final class Call(var label: Int) extends InstrWithLabel {
+private [internal] final case class Call(var label: Int) extends InstrWithLabel {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.call(label)

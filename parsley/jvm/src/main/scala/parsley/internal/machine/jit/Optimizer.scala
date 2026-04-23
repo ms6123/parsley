@@ -5,16 +5,19 @@ import scala.collection.mutable
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 
-private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "false").toBoolean
+private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "true").toBoolean
 private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
 
 object Optimizer {
-    val useTco = false
+    val useTco: Boolean = !IS_ENABLED
 
     def optimize(instrs: Array[Instr]): ParseRunner = {
         if (!IS_ENABLED) {
+            System.err.println(s"Interpreting ${instrs.length} instructions")
             return Context.interpreterRunner(instrs)
         }
+
+        System.err.println(s"JITing ${instrs.length} instructions")
 
         def isFunctionTerminator(instr: Instr): Boolean = instr match {
             case Halt | Return => true
@@ -33,13 +36,16 @@ object Optimizer {
 
         val functions = functionRanges.map { funcRange =>
             for (i <- funcRange) {
-                instrs(i).relabel(_ - funcRange.start)
+                instrs(i) match {
+                    case Call(_) =>
+                    case instr => instr.relabel(_ - funcRange.start)
+                }
             }
 
             val funcInstrs = mutable.ArrayBuffer.from(instrs.view.slice(funcRange.start, funcRange.last + 1))
             val copiedHandlers = mutable.Map.empty[Instr, Int]
 
-            for (instr <- funcRange.map(instrs); label <- instr.labels if label >= funcRange.last) {
+            for (instr <- funcRange.map(instrs); label <- instr.labels if label >= funcRange.length) {
                 val foreignTarget = instrs(label + funcRange.start)
                 require(foreignTarget.isInstanceOf[RefailInstr])
 
@@ -50,10 +56,10 @@ object Optimizer {
                 instr.relabel(it => if (it == label) copiedIndex else it)
             }
 
-            ParserFunction(funcInstrs.toArray, determineSuccessors(funcInstrs))
+            ParserFunction(funcRange.start, funcInstrs.toArray, determineSuccessors(funcInstrs))
         }
 
-        ???
+        ParserGenerator(functions.toSeq).generate()
     }
 
     private def determineSuccessors(instrs: mutable.ArrayBuffer[Instr]): Array[SuccessorInfo] = {

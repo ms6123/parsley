@@ -48,7 +48,16 @@ class ClassGenContext {
 
         def loadObject[T <: AnyRef](obj: T)(using tag: ClassTag[T]): Unit = {
             objectPool += obj
-            visitInvokeDynamicInsn("getObject", "()" + Type.getDescriptor(tag.runtimeClass), Handle(Opcodes.H_INVOKESTATIC, JIT_RUNTIME, GET_OBJECT.getName, Type.getMethodDescriptor(GET_OBJECT), false), objectPool.length - 1)
+            visitInvokeDynamicInsn(obj.getClass.getSimpleName, "()" + Type.getDescriptor(tag.runtimeClass), Handle(Opcodes.H_INVOKESTATIC, JIT_RUNTIME, GET_OBJECT.getName, Type.getMethodDescriptor(GET_OBJECT), false), objectPool.length - 1)
+        }
+
+        def loadInt(i: Int): Unit = {
+            i match {
+                case _ if (-1 to 5).contains(i) => visitInsn(Opcodes.ICONST_0 + i)
+                case _ if (Byte.MinValue to Byte.MaxValue).contains(i) => visitIntInsn(Opcodes.BIPUSH, i)
+                case _ if (Short.MinValue to Short.MaxValue).contains(i) => visitIntInsn(Opcodes.SIPUSH, i)
+                case _ => visitLdcInsn(i)
+            }
         }
 
         override def visitEnd(): Unit = {

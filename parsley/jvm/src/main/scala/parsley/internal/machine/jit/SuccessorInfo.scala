@@ -2,7 +2,9 @@ package parsley.internal.machine.jit
 
 import parsley.internal.machine.instructions.Instr
 
-case class SuccessorInfo(goodPaths: Set[Int], badPaths: Set[Int])
+case class SuccessorInfo(goodPaths: Set[Int], badPaths: Set[Int]) {
+    def combined: Set[Int] = goodPaths ++ badPaths
+}
 
 object SuccessorInfo {
     def apply(instr: Instr, possibleHandlers: Iterable[List[Int]], pos: Int): SuccessorInfo = {

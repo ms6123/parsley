@@ -26,7 +26,7 @@ private [parsley] final class Context(private val runner: ParseRunner,
                                       numRegs: Int,
                                       private val sourceFile: Option[String]) {
     private [machine] var instrs: Array[Instr] = _
-    
+
     /** This is the operand stack, where results go to live  */
     private [machine] val stack: ArrayStack[Any] = new ArrayStack()
     /** Current offset into the input */
@@ -34,7 +34,7 @@ private [parsley] final class Context(private val runner: ParseRunner,
     /** The length of the input, stored for whatever reason */
     private [machine] val inputsz: Int = input.length
     /** Call stack consisting of Frames that track the return position and the old instructions */
-    private var calls: CallStack = Stack.empty
+    private [machine] var calls: CallStack = Stack.empty
     /** State stack consisting of offsets and positions that can be rolled back */
     private [machine] var states: StateStack = Stack.empty
     /** Current operational status of the machine */
@@ -201,15 +201,7 @@ private [parsley] final class Context(private val runner: ParseRunner,
     }
     private [machine] def fail(): Unit = {
         assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
-        if (handlers.isEmpty) running = false
-        else {
-            val handler = handlers
-            instrs = handler.instrs
-            calls = handler.calls
-            pc = handler.pc
-            val diffstack = stack.usize - handler.stacksz
-            if (diffstack > 0) stack.drop(diffstack)
-        }
+        runner.fail(this)
     }
 
     private [machine] def pushAndContinue(x: Any) = {
@@ -318,6 +310,20 @@ private [parsley] object Context {
         override def dynCall(ctx: Context): Unit = {
             ctx.call(0)
             ctx.instrs = instrs
+        }
+
+        override def fail(ctx: Context): Unit = {
+            if (ctx.handlers.isEmpty) {
+                ctx.running = false
+            }
+            else {
+                val handler = ctx.handlers
+                ctx.instrs = handler.instrs
+                ctx.calls = handler.calls
+                ctx.pc = handler.pc
+                val diffstack = ctx.stack.usize - handler.stacksz
+                if (diffstack > 0) ctx.stack.drop(diffstack)
+            }
         }
     }
 }
