@@ -6,13 +6,13 @@ import scala.collection.mutable
 
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.{Call, DynCall, Instr}
-import parsley.internal.machine.stacks.Stack.StackExt
 
 import org.objectweb.asm.{Label, Opcodes, Type}
 
-private val IMPL_NAME = "parse"
-private val IMPL_DESC = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(classOf[Context]))
+private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
+private val IMPL_NAME = "parse"
+private val IMPL_DESC = Type.getMethodDescriptor(Type.VOID_TYPE, JIT_CONTEXT)
 
 private[jit] class ParserGenerator(private val functions: Array[ParserFunction]) {
     private val ctx = ClassGenContext()
@@ -21,36 +21,17 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
     def generate(): ParseRunner = {
         val classes = functions.map(generate)
-        val startMethod = MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[Context]))
+        val startMethod = MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[JitContext]))
         new ParseRunner {
-            override def run(ctx: Context): Unit = {
-                startMethod.invokeExact(ctx)
-            }
+            override type ContextT = JitContext
 
-            override def dynCall(ctx: Context): Unit = {
+            override def newContext(input: String, numRegs: Int, sourceFile: Option[String]): ContextT =
+                JitContext(startMethod, input, numRegs, sourceFile)
+
+            override def dynCall(ctx: JitContext): Unit = {
                 ctx.call(0)
                 //noinspection ScalaUnusedExpression
                 startMethod.invokeExact(ctx): Unit
-            }
-
-            override def fail(ctx: Context): Unit = {
-                if (ctx.handlers.isEmpty) {
-                    ctx.running = false
-                    ctx.pc = -1
-                } else {
-                    val handler = ctx.handlers
-                    ctx.instrs = handler.instrs
-                    if (ctx.calls eq handler.calls) {
-                        // Local handler
-                        ctx.pc = handler.pc
-                    } else {
-                        // Handler in parent method
-                        ctx.pc = -1
-                    }
-                    ctx.calls = handler.calls
-                    val diffstack = ctx.stack.usize - handler.stacksz
-                    if (diffstack > 0) ctx.stack.drop(diffstack)
-                }
             }
         }
     }
@@ -72,7 +53,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.head))
                     case _ =>
                         vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc", "()I", false)
+                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc", "()I", false)
 
                         successors.size match {
                             case 2 if successors.contains(pos + 1) =>
@@ -94,7 +75,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
             vis.visitVarInsn(Opcodes.ALOAD, 0)
             vis.loadInt(0)
-            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
+            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
 
             for ((instr, pos) <- function.instrs.view.zipWithIndex) {
                 val successors = function.successorInfos(pos)
@@ -137,13 +118,13 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             val goodLabel = Label()
 
                             vis.visitVarInsn(Opcodes.ALOAD, 0)
-                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "good", "()Z", false)
+                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "good", "()Z", false)
                             vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
 
                             // Bad case
                             vis.visitVarInsn(Opcodes.ALOAD, 0)
                             vis.loadInt(successors.badPaths.head)
-                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
+                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
                             vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.badPaths.head))
 
                             vis.visitLabel(goodLabel)
@@ -151,7 +132,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                         vis.visitVarInsn(Opcodes.ALOAD, 0)
                         vis.loadInt(pos + 1)
-                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
+                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
                     case _ =>
                         jumpToSuccessors(pos, successors.combined)
                 }

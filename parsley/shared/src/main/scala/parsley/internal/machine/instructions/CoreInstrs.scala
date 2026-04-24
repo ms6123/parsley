@@ -86,7 +86,7 @@ private [internal] final class DynCall(f: (Any, Int) => ParseRunner) extends Ins
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         val runner = f(ctx.stack.upop(), ctx.regs.size)
-        runner.dynCall(ctx)
+        runner.dynCall(ctx.asInstanceOf[runner.ContextT]) // TODO: avoidable?
     }
     // $COVERAGE-OFF$
     override def toString: String = "DynCall(?)"

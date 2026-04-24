@@ -1,9 +1,9 @@
 package parsley.internal.machine
 
 private[parsley] trait ParseRunner {
-    def run(ctx: Context): Unit
-
-    def dynCall(ctx: Context): Unit
+    type ContextT <: Context
     
-    def fail(ctx: Context): Unit
+    def newContext(input: String, numRegs: Int, sourceFile: Option[String]): ContextT
+    
+    def dynCall(ctx: ContextT): Unit
 }

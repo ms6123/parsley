@@ -21,10 +21,9 @@ import parsley.internal.machine.errors.{ClassicFancyError, DefuncError, DefuncHi
 import instructions.Instr
 import stacks.{ArrayStack, CallStack, ErrorStack, HandlerStack, Stack, StateStack}, Stack.StackExt
 
-private [parsley] final class Context(private val runner: ParseRunner,
-                                      private [machine] val input: String,
-                                      numRegs: Int,
-                                      private val sourceFile: Option[String]) {
+private[parsley] abstract class Context(private[machine] val input: String,
+                                        numRegs: Int,
+                                        private val sourceFile: Option[String]) {
     private [machine] var instrs: Array[Instr] = _
 
     /** This is the operand stack, where results go to live  */
@@ -125,8 +124,10 @@ private [parsley] final class Context(private val runner: ParseRunner,
     }
     // $COVERAGE-ON$
 
+    protected def runImpl(): Unit
+
     private [parsley] def run[Err: ErrorBuilder, A](): Result[Err, A] = {
-        runner.run(this)
+        runImpl()
         if (good) {
             assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
             assert(calls.isEmpty, "there must be no more calls to unwind on end of parser")
@@ -199,9 +200,12 @@ private [parsley] final class Context(private val runner: ParseRunner,
         this.pushError(error)
         this.fail()
     }
+
+    protected def failImpl(): Unit
+
     private [machine] def fail(): Unit = {
         assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
-        runner.fail(this)
+        failImpl()
     }
 
     private [machine] def pushAndContinue(x: Any) = {
@@ -300,30 +304,14 @@ private [parsley] final class Context(private val runner: ParseRunner,
 
 private [parsley] object Context {
     def interpreterRunner(instrs: Array[Instr]): ParseRunner = new ParseRunner {
-        override def run(ctx: Context): Unit = {
-            ctx.instrs = instrs
-            while (ctx.running) {
-                ctx.instrs(ctx.pc)(ctx)
-            }
-        }
+        override type ContextT = InterpreterContext
 
-        override def dynCall(ctx: Context): Unit = {
+        override def newContext(input: String, numRegs: Int, sourceFile: Option[String]): InterpreterContext =
+            InterpreterContext(instrs, input, numRegs, sourceFile)
+
+        override def dynCall(ctx: InterpreterContext): Unit = {
             ctx.call(0)
             ctx.instrs = instrs
-        }
-
-        override def fail(ctx: Context): Unit = {
-            if (ctx.handlers.isEmpty) {
-                ctx.running = false
-            }
-            else {
-                val handler = ctx.handlers
-                ctx.instrs = handler.instrs
-                ctx.calls = handler.calls
-                ctx.pc = handler.pc
-                val diffstack = ctx.stack.usize - handler.stacksz
-                if (diffstack > 0) ctx.stack.drop(diffstack)
-            }
         }
     }
 }
