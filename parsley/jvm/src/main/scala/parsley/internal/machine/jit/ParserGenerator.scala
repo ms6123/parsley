@@ -2,6 +2,8 @@ package parsley.internal.machine.jit
 
 import java.lang.invoke.{MethodHandles, MethodType}
 
+import scala.collection.mutable
+
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.{Call, DynCall, Instr}
 import parsley.internal.machine.stacks.Stack.StackExt
@@ -12,8 +14,10 @@ private val IMPL_NAME = "parse"
 private val IMPL_DESC = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(classOf[Context]))
 private val CONTEXT = Type.getType(classOf[Context])
 
-private[jit] class ParserGenerator(private val functions: Seq[ParserFunction]) {
+private[jit] class ParserGenerator(private val functions: Array[ParserFunction]) {
     private val ctx = ClassGenContext()
+    private val functionsById = functions.view.map(it => it.id -> it).toMap
+    private val canFailCache = mutable.Map.empty[Int, Boolean]
 
     def generate(): ParseRunner = {
         val classes = functions.map(generate)
@@ -97,12 +101,13 @@ private[jit] class ParserGenerator(private val functions: Seq[ParserFunction]) {
 
                 vis.visitLabel(instrLabels(pos))
 
+                vis.loadObject(instr)
+
+//                vis.visitInsn(Opcodes.DUP)
 //                vis.loadInt(pos)
 //                vis.visitVarInsn(Opcodes.ALOAD, 0)
-//                vis.loadObject(instr)
-//                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(ILjava/lang/Object;Ljava/lang/Object;)V", false)
+//                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(Ljava/lang/Object;ILjava/lang/Object;)V", false)
 
-                vis.loadObject(instr)
                 vis.visitVarInsn(Opcodes.ALOAD, 0)
                 vis.visitMethodInsn(
                     Opcodes.INVOKEVIRTUAL,
@@ -123,19 +128,27 @@ private[jit] class ParserGenerator(private val functions: Seq[ParserFunction]) {
                     case _: (Call | DynCall) =>
                         assume(successors.goodPaths == Set(pos + 1) && successors.badPaths.sizeIs == 1)
 
-                        val goodLabel = Label()
+                        val mightFail = instr match {
+                            case Call(id) => canFail(id)
+                            case _ => true
+                        }
 
-                        vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "good", "()Z", false)
-                        vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
+                        if (mightFail) {
+                            val goodLabel = Label()
 
-                        // Bad case
-                        vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.loadInt(successors.badPaths.head)
-                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
-                        vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.badPaths.head))
+                            vis.visitVarInsn(Opcodes.ALOAD, 0)
+                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "good", "()Z", false)
+                            vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
 
-                        vis.visitLabel(goodLabel)
+                            // Bad case
+                            vis.visitVarInsn(Opcodes.ALOAD, 0)
+                            vis.loadInt(successors.badPaths.head)
+                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
+                            vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.badPaths.head))
+
+                            vis.visitLabel(goodLabel)
+                        }
+
                         vis.visitVarInsn(Opcodes.ALOAD, 0)
                         vis.loadInt(pos + 1)
                         vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
@@ -148,6 +161,22 @@ private[jit] class ParserGenerator(private val functions: Seq[ParserFunction]) {
             vis.visitInsn(Opcodes.RETURN)
             vis.visitEnd()
         }
+
+    private def canFail(id: Int, visited: Set[Int] = Set.empty): Boolean = if (canFailCache.contains(id)) canFailCache(id) else {
+        val result = canFailImpl(id, visited)
+        canFailCache(id) = result
+        result
+    }
+
+    private def canFailImpl(id: Int, visited: Set[Int] = Set.empty): Boolean = {
+        val func = functionsById(id)
+        func.instrs.view.zip(func.successorInfos).exists { case (instr, successors) =>
+            instr match {
+                case Call(id) => !visited.contains(id) && canFail(id, visited.incl(id))
+                case _ => successors.badPaths.nonEmpty
+            }
+        }
+    }
 
     private def className(id: Int) = s"parsley/internal/machine/jit/gen/parsers/Parser$id"
 }

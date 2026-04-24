@@ -21,9 +21,10 @@ class ClassGenContext {
     def newClass(access: Int, name: String, superName: String = "java/lang/Object", interfaces: Seq[String] = Seq.empty)
                 (builder: ClassGenVisitor => Unit): Class[?] = {
         val writer = ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        val visitor = ClassGenVisitor(writer)
+        val visitor = ClassGenVisitor(writer, name)
         visitor.visit(Opcodes.V1_8, access, name, null, superName, interfaces.toArray)
         builder(visitor)
+        visitor.visitEnd()
         val bytes = writer.toByteArray
         if (SHOULD_DUMP_CLASSES) {
             val file = Paths.get("jit-classes", name.replace('/', File.separatorChar) + ".class")
@@ -31,24 +32,49 @@ class ClassGenContext {
             Files.write(file, bytes)
         }
         val clazz = classLoader.defineClass(name.replace('/', '.'), bytes)
-        objectPools(clazz) = visitor.objectPool.result()
+        objectPools(clazz) = visitor.objectPool.toArray
         clazz
     }
 
-    class ClassGenVisitor(delegate: ClassVisitor) extends ClassVisitor(Opcodes.ASM9, delegate) {
-        private[ClassGenContext] val objectPool = mutable.ArrayBuilder.make[AnyRef]
+    class ClassGenVisitor(delegate: ClassVisitor, private val className: String) extends ClassVisitor(Opcodes.ASM9, delegate) {
+        private[ClassGenContext] val objectPool = mutable.ArrayBuffer.empty[AnyRef]
+        private[ClassGenContext] val objectTypes = mutable.ArrayBuffer.empty[Class[?]]
 
         override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodGenVisitor = {
-            MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), objectPool)
+            MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), className) { case (obj, clazz) =>
+                objectPool += obj
+                objectTypes += clazz
+                "OBJECT" + (objectPool.length - 1)
+            }
+        }
+
+        override def visitEnd(): Unit = {
+            val clinit = visitMethod(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null)
+            for (((obj, clazz), index) <- objectPool.zip(objectTypes).zipWithIndex) {
+                visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL, "OBJECT" + index, Type.getDescriptor(clazz), null, null).visitEnd()
+
+                clinit.visitInvokeDynamicInsn(
+                    obj.getClass.getSimpleName,
+                    "()" + Type.getDescriptor(clazz),
+                    Handle(Opcodes.H_INVOKESTATIC, JIT_RUNTIME, GET_OBJECT.getName, Type.getMethodDescriptor(GET_OBJECT), false),
+                    index
+                )
+                clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, "OBJECT" + index, Type.getDescriptor(clazz))
+            }
+            clinit.visitInsn(Opcodes.RETURN)
+            clinit.visitEnd()
         }
     }
 
-    class MethodGenVisitor(delegate: MethodVisitor, private val objectPool: mutable.ArrayBuilder[AnyRef]) extends MethodVisitor(Opcodes.ASM9, delegate) {
+    class MethodGenVisitor(delegate: MethodVisitor, private val className: String)(private val registerObject: (AnyRef, Class[?]) => String) extends MethodVisitor(Opcodes.ASM9, delegate) {
         visitCode()
 
         def loadObject[T <: AnyRef](obj: T)(using tag: ClassTag[T]): Unit = {
-            objectPool += obj
-            visitInvokeDynamicInsn(obj.getClass.getSimpleName, "()" + Type.getDescriptor(tag.runtimeClass), Handle(Opcodes.H_INVOKESTATIC, JIT_RUNTIME, GET_OBJECT.getName, Type.getMethodDescriptor(GET_OBJECT), false), objectPool.length - 1)
+            if (isScalaObject(obj)) {
+                visitFieldInsn(Opcodes.GETSTATIC, Type.getInternalName(obj.getClass), "MODULE$", Type.getDescriptor(obj.getClass))
+            } else {
+                visitFieldInsn(Opcodes.GETSTATIC, className, registerObject(obj, tag.runtimeClass), Type.getDescriptor(tag.runtimeClass))
+            }
         }
 
         def loadInt(i: Int): Unit = {
@@ -64,6 +90,14 @@ class ClassGenContext {
             visitMaxs(0, 0)
             super.visitEnd()
         }
+
+        private def isScalaObject(obj: AnyRef): Boolean =
+            try {
+                obj.getClass.getField("MODULE$")
+                true
+            } catch {
+                case _: NoSuchFieldException => false
+            }
     }
 }
 

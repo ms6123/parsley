@@ -59,7 +59,7 @@ object Optimizer {
             ParserFunction(funcRange.start, funcInstrs.toArray, determineSuccessors(funcInstrs))
         }
 
-        ParserGenerator(functions.toSeq).generate()
+        ParserGenerator(functions.toArray).generate()
     }
 
     private def determineSuccessors(instrs: mutable.ArrayBuffer[Instr]): Array[SuccessorInfo] = {

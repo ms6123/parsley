@@ -14,7 +14,7 @@ public class JitRuntime {
         return new ConstantCallSite(MethodHandles.constant(type.returnType(), value));
     }
     
-    public static void beforeInstruction(int i, Object ctx, Object instr) {
+    public static void beforeInstruction(Object instr, int i, Object ctx) {
         if (((Context) ctx).pc() != i) {
             throw new IllegalStateException("pc mismatch");
         }
