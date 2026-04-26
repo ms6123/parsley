@@ -56,10 +56,22 @@ object Optimizer {
                 instr.relabel(it => if (it == label) copiedIndex else it)
             }
 
+            tailrecOptimization(funcRange, funcInstrs)
+
             ParserFunction(funcRange.start, funcInstrs.toArray, determineSuccessors(funcInstrs))
         }
 
         ParserGenerator(functions.toArray).generate()
+    }
+
+    private def tailrecOptimization(funcRange: Range, instrs: mutable.ArrayBuffer[Instr]): Unit = {
+        for (i <- 0 until instrs.indices.last) {
+            (instrs(i), instrs(i + 1)) match {
+                case (Call(callId), Return) if callId == funcRange.start =>
+                    instrs(i) = Jump(0)
+                case _ =>
+            }
+        }
     }
 
     private def determineSuccessors(instrs: mutable.ArrayBuffer[Instr]): Array[SuccessorInfo] = {
