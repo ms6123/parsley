@@ -53,7 +53,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
     // NEW ERROR MECHANISMS
     private [machine] var hints: DefuncHints = EmptyHints
     protected var hintsValidOffset = 0
-    private [machine] var errs: ErrorStack = Stack.empty
+    private [machine] val errs: ArrayStack[DefuncError] = new ArrayStack()
 
     private [machine] def restoreHints(): Unit = {
         val hintFrame = this.handlers
@@ -63,7 +63,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     /* Error Debugging Info */
     private [machine] def inFlightHints: DefuncHints = hints
-    private [machine] def inFlightError: DefuncError = errs.error
+    private [machine] def inFlightError: DefuncError = errs.peek
     private [machine] def currentHintsValidOffset: Int = hintsValidOffset
 
     /* ERROR RELABELLING BEGIN */
@@ -91,8 +91,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
         }
     }
     private [machine] def addErrorToHintsAndPop(): Unit = {
-        this.addErrorToHints(errs.error)
-        this.errs = this.errs.tail
+        this.addErrorToHints(errs.pop())
     }
     private [machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int) = {
         assume(expecteds.nonEmpty, "hints must always be non-empty")
@@ -124,7 +123,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
         }
     }
 
-    private [machine] def pushError(err: DefuncError): Unit = this.errs = new ErrorStack(this.useHints(err), this.errs)
+    private [machine] def pushError(err: DefuncError): Unit = errs.push(this.useHints(err))
     private [machine] def useHints(err: DefuncError): DefuncError = {
         if (hintsValidOffset == err.presentationOffset) err.withHints(hints)
         else {

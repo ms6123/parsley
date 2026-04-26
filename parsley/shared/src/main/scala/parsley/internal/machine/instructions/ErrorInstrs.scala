@@ -8,7 +8,7 @@ package parsley.internal.machine.instructions
 import parsley.internal.errors.{CaretWidth, RigidCaret, UnexpectDesc}
 import parsley.internal.machine.Context
 import parsley.internal.machine.XAssert.*
-import parsley.internal.machine.errors.EmptyError
+import parsley.internal.machine.errors.{DefuncError, EmptyError}
 
 private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr {
     override def apply(ctx: Context): Unit = {
@@ -34,11 +34,11 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
         ensureHandlerInstruction(ctx)
         // this has the effect of relabelling all hints since the start of the label combinator
         ctx.restoreHints()
-        ctx.errs.error = ctx.useHints {
+        ctx.errs.exchange(ctx.useHints {
             // only use the label if the error message is generated at the same offset
             // as the check stack saved for the start of the `label` combinator.
-            ctx.errs.error.label(labels, ctx.handlers.check)
-        }
+            ctx.errs.peek.label(labels, ctx.handlers.check)
+        })
         ctx.handlers = ctx.handlers.tail
         ctx.fail()
     }
@@ -70,7 +70,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        if (ctx.offset == ctx.handlers.check) ctx.errs.error = new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = 0)
+        if (ctx.offset == ctx.handlers.check) ctx.errs.exchange(new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = 0))
         ctx.handlers = ctx.handlers.tail
         ctx.fail()
     }
@@ -100,9 +100,8 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
-        val err2 = ctx.errs.error
-        ctx.errs = ctx.errs.tail
-        ctx.errs.error = ctx.errs.error.merge(err2)
+        val err2 = ctx.errs.pop[DefuncError]()
+        ctx.errs.exchange(ctx.errs.peek.merge(err2))
         ctx.fail()
     }
 
@@ -114,7 +113,7 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
 private [internal] class ApplyReasonAndFail(reason: String) extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.errs.error = ctx.errs.error.withReason(reason, ctx.handlers.check)
+        ctx.errs.exchange(ctx.errs.peek.withReason(reason, ctx.handlers.check))
         ctx.handlers = ctx.handlers.tail
         ctx.fail()
     }
@@ -129,7 +128,7 @@ private [internal] class AmendAndFail private (partial: Boolean) extends Instr w
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
         ctx.handlers = ctx.handlers.tail
-        ctx.errs.error = ctx.errs.error.amend(partial, ctx.states.offset, ctx.states.line, ctx.states.col)
+        ctx.errs.exchange(ctx.errs.peek.amend(partial, ctx.states.offset, ctx.states.line, ctx.states.col))
         ctx.states = ctx.states.tail
         ctx.fail()
     }
@@ -148,7 +147,7 @@ private [internal] object EntrenchAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
-        ctx.errs.error = ctx.errs.error.entrench
+        ctx.errs.exchange(ctx.errs.peek.entrench)
         ctx.fail()
     }
 
@@ -161,7 +160,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.handlers = ctx.handlers.tail
-        ctx.errs.error = ctx.errs.error.dislodge(n)
+        ctx.errs.exchange(ctx.errs.peek.dislodge(n))
         ctx.fail()
     }
 
@@ -173,7 +172,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
 private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.errs.error = ctx.errs.error.markAsLexical(ctx.handlers.check)
+        ctx.errs.exchange(ctx.errs.peek.markAsLexical(ctx.handlers.check))
         ctx.handlers = ctx.handlers.tail
         ctx.fail()
     }

@@ -222,7 +222,7 @@ private [internal] object NegLookGood extends Instr {
         ctx.handlers = ctx.handlers.tail
         // A failure is what we wanted
         ctx.good = true
-        ctx.errs = ctx.errs.tail
+        ctx.errs.pop_()
         ctx.inc()
     }
     // $COVERAGE-OFF$

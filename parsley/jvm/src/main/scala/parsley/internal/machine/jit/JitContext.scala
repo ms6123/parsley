@@ -32,10 +32,10 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
             Success(stack.peek[A])
         }
         else {
-            assert(!errs.isEmpty && errs.tail.isEmpty, "there should be exactly 1 parse error remaining at end of parse")
+            assert(!errs.isEmpty && errs.size == 1, "there should be exactly 1 parse error remaining at end of parse")
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
             assert(states.isEmpty, "there must be no residual states left at end of parse")
-            Failure(errs.error.asParseError.format(sourceFile))
+            Failure(errs.peek.asParseError.format(sourceFile))
         }
     }
 
