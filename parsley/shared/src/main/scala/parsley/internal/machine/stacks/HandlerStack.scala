@@ -8,12 +8,14 @@ package parsley.internal.machine.stacks
 import parsley.internal.machine.errors.DefuncHints
 
 private [machine] abstract class HandlerStack[SelfT <: HandlerStack[SelfT]](
-    var pc: Int,
     val stacksz: Int,
     var check: Int,
     val hints: DefuncHints,
     val hintOffset: Int) {
     val tail: SelfT
+    
+    def pc: Int
+    def pc_=(v: Int): Unit
 }
 
 private [machine] object HandlerStack {

@@ -18,14 +18,11 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
                               sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
     override private[machine] type HandlerStackT = JitHandlerStack
 
-    private var calls = 0
-
     override private[parsley] def run[Err: ErrorBuilder, A]() = {
         //noinspection ScalaUnusedExpression
         startMethod.invokeExact(this): Unit
         if (good) {
             assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
-            assert(calls == 0, "there must be no more calls to unwind on end of parser")
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
             assert(states.isEmpty, "there must be no residual states left at end of parse")
             assert(errs.isEmpty, "there should be no parse errors remaining at end of parse")
@@ -39,34 +36,20 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
         }
     }
 
-    override private[machine] def call(at: Int): Unit = calls += 1
+    override private[machine] def call(at: Int): Unit = ???
 
-    override private[machine] def ret(): Unit = {
-        assert(calls != 0, "cannot return when no calls are made")
-        calls -= 1
-    }
+    override private[machine] def ret(): Unit = ???
 
     override protected def failImpl(): Unit = {
-        if (handlers.isEmpty) {
-            running = false
-            pc = -1
-        } else {
+        if (!handlers.isEmpty) {
             val handler = handlers
-            if (calls == handler.calls) {
-                // Local handler
-                pc = handler.pc
-            } else {
-                // Handler in parent method
-                pc = -1
-            }
-            calls = handler.calls
             val diffstack = stack.usize - handler.stacksz
             if (diffstack > 0) stack.drop(diffstack)
         }
     }
 
     override private[machine] def pushHandler(label: Int): Unit = {
-        handlers = new JitHandlerStack(calls, label, stack.usize, offset, hints, hintsValidOffset, handlers)
+        handlers = new JitHandlerStack(stack.usize, offset, hints, hintsValidOffset, handlers)
     }
 
     // $COVERAGE-OFF$
@@ -77,7 +60,6 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
            |  pos       = ($line, $col)
            |  status    = $status
            |  pc        = $pc
-           |  rets      = $calls
            |  handlers  = ${handlers.mkString(", ")}
            |  recstates = ${states.mkString(", ")}
            |  registers = ${regs.zipWithIndex.map { case (r, i) => s"r$i = $r" }.toList.mkString("\n              ")}
@@ -87,11 +69,13 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
     // $COVERAGE-ON$
 }
 
-private class JitHandlerStack(val calls: Int,
-                              pc: Int,
-                              stacksz: Int,
+private class JitHandlerStack(stacksz: Int,
                               check: Int,
                               hints: DefuncHints,
                               hintOffset: Int,
                               val tail: JitHandlerStack
-                             ) extends HandlerStack[JitHandlerStack](pc, stacksz, check, hints, hintOffset)
+                             ) extends HandlerStack[JitHandlerStack](stacksz, check, hints, hintOffset) {
+    override def pc: Int = -1
+
+    override def pc_=(v: Int): Unit = ()
+}

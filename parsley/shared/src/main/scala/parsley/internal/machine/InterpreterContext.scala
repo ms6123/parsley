@@ -93,10 +93,10 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
 
 private class InterpreterHandlerStack(val calls: CallStack,
                                       val instrs: Array[Instr],
-                                      pc: Int,
+                                      var pc: Int,
                                       stacksz: Int,
                                       check: Int,
                                       hints: DefuncHints,
                                       hintOffset: Int,
                                       val tail: InterpreterHandlerStack
-                                     ) extends HandlerStack[InterpreterHandlerStack](pc, stacksz, check, hints, hintOffset)
+                                     ) extends HandlerStack[InterpreterHandlerStack](stacksz, check, hints, hintOffset)
