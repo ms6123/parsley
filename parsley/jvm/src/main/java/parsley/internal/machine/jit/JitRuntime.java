@@ -2,16 +2,10 @@ package parsley.internal.machine.jit;
 
 import parsley.internal.machine.Context;
 
-import java.lang.invoke.CallSite;
-import java.lang.invoke.ConstantCallSite;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-
 @SuppressWarnings("unused")
 public class JitRuntime {
-    public static CallSite getObject(MethodHandles.Lookup ctx, String name, MethodType type, int index) {
-        Object value = ClassGenContext$.MODULE$.getObject(index, ctx.lookupClass());
-        return new ConstantCallSite(MethodHandles.constant(type.returnType(), value));
+    public static Object getObject(Class<?> ctx, String name, int index) {
+        return ClassGenContext$.MODULE$.getObject(index, ctx);
     }
     
     public static void beforeInstruction(Object instr, int i, Object ctx) {

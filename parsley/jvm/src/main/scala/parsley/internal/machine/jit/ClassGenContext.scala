@@ -13,7 +13,7 @@ import org.objectweb.asm.*
 
 private val SHOULD_DUMP_CLASSES = System.getProperty("parsley.jit.dump", "false").toBoolean
 private val JIT_RUNTIME = Type.getInternalName(classOf[JitRuntime])
-private val GET_OBJECT = classOf[JitRuntime].getMethod("getObject", classOf[MethodHandles.Lookup], classOf[String], classOf[MethodType], classOf[Int])
+private val GET_OBJECT = classOf[JitRuntime].getMethod("getObject", classOf[Class[?]], classOf[String], classOf[Int])
 
 class ClassGenContext {
     private val classLoader = OpenClassLoader(getClass.getClassLoader)
@@ -37,29 +37,40 @@ class ClassGenContext {
     }
 
     class ClassGenVisitor(delegate: ClassVisitor, private val className: String) extends ClassVisitor(Opcodes.ASM9, delegate) {
+        private[ClassGenContext] val existingObjects = mutable.Map.empty[AnyRef, Int]
         private[ClassGenContext] val objectPool = mutable.ArrayBuffer.empty[AnyRef]
         private[ClassGenContext] val objectTypes = mutable.ArrayBuffer.empty[Class[?]]
 
         override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodGenVisitor = {
             MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), className) { case (obj, clazz) =>
-                objectPool += obj
-                objectTypes += clazz
-                "OBJECT" + (objectPool.length - 1)
+                val index = existingObjects.getOrElseUpdate(obj, {
+                    objectPool += obj
+                    objectTypes += clazz
+                    objectPool.length - 1
+                })
+
+                obj.getClass.getSimpleName + index
             }
         }
 
         override def visitEnd(): Unit = {
             val clinit = visitMethod(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null)
             for (((obj, clazz), index) <- objectPool.zip(objectTypes).zipWithIndex) {
-                visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL, "OBJECT" + index, Type.getDescriptor(clazz), null, null).visitEnd()
+                visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL, obj.getClass.getSimpleName + index, Type.getDescriptor(clazz), null, null).visitEnd()
 
-                clinit.visitInvokeDynamicInsn(
-                    obj.getClass.getSimpleName,
-                    "()" + Type.getDescriptor(clazz),
-                    Handle(Opcodes.H_INVOKESTATIC, JIT_RUNTIME, GET_OBJECT.getName, Type.getMethodDescriptor(GET_OBJECT), false),
-                    index
+                clinit.visitLdcInsn(Type.getObjectType(className))
+                clinit.visitLdcInsn(obj.toString)
+                clinit.loadInt(index)
+                clinit.visitMethodInsn(
+                    Opcodes.INVOKESTATIC,
+                    JIT_RUNTIME,
+                    GET_OBJECT.getName,
+                    Type.getMethodDescriptor(GET_OBJECT),
+                    false
                 )
-                clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, "OBJECT" + index, Type.getDescriptor(clazz))
+                clinit.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(clazz))
+
+                clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, obj.getClass.getSimpleName + index, Type.getDescriptor(clazz))
             }
             clinit.visitInsn(Opcodes.RETURN)
             clinit.visitEnd()
