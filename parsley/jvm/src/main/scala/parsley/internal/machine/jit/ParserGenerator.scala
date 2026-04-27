@@ -5,7 +5,7 @@ import java.lang.invoke.{MethodHandles, MethodType}
 import scala.collection.mutable
 
 import parsley.internal.machine.{Context, ParseRunner}
-import parsley.internal.machine.instructions.{Call, DynCall, Instr}
+import parsley.internal.machine.instructions.{Call, DynCall, Halt, Instr, Jump, Return}
 
 import org.objectweb.asm.{Label, Opcodes, Type}
 
@@ -28,11 +28,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
             override def newContext(input: String, numRegs: Int, sourceFile: Option[String]): ContextT =
                 JitContext(startMethod, input, numRegs, sourceFile)
 
-            override def dynCall(ctx: JitContext): Unit = {
-                ctx.call(0)
-                //noinspection ScalaUnusedExpression
-                startMethod.invokeExact(ctx): Unit
-            }
+            override def dynCall(ctx: JitContext): Unit = startMethod.invokeExact(ctx)
         }
     }
 
@@ -77,26 +73,37 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
             vis.loadInt(0)
             vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
 
-            for ((instr, pos) <- function.instrs.view.zipWithIndex) {
+            for ((instr, pos) <- function.instrs.view.zipWithIndex if function.successorInfos(pos).isReachable) {
                 val successors = function.successorInfos(pos)
 
                 vis.visitLabel(instrLabels(pos))
 
-                vis.loadObject(instr)
+                if (successors.isHandler && successors.goodPaths.nonEmpty) {
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.loadInt(pos)
+                    vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
+                }
 
-//                vis.visitInsn(Opcodes.DUP)
-//                vis.loadInt(pos)
-//                vis.visitVarInsn(Opcodes.ALOAD, 0)
-//                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(Ljava/lang/Object;ILjava/lang/Object;)V", false)
+                instr match {
+                    case _: Call | Return | Halt =>
+                        // No-ops
+                    case _ =>
+                        vis.loadObject(instr)
 
-                vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.visitMethodInsn(
-                    Opcodes.INVOKEVIRTUAL,
-                    Type.getType(classOf[Instr]).getInternalName,
-                    "apply",
-                    Type.getMethodDescriptor(Type.VOID_TYPE, CONTEXT),
-                    false
-                )
+                        //                vis.visitInsn(Opcodes.DUP)
+                        //                vis.loadInt(pos)
+                        //                vis.visitVarInsn(Opcodes.ALOAD, 0)
+                        //                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(Ljava/lang/Object;ILjava/lang/Object;)V", false)
+
+                        vis.visitVarInsn(Opcodes.ALOAD, 0)
+                        vis.visitMethodInsn(
+                            Opcodes.INVOKEVIRTUAL,
+                            Type.getType(classOf[Instr]).getInternalName,
+                            "apply",
+                            Type.getMethodDescriptor(Type.VOID_TYPE, CONTEXT),
+                            false
+                        )
+                }
 
                 instr match {
                     case Call(id) =>
@@ -105,36 +112,37 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     case _ =>
                 }
 
+                val mightFail = instr match {
+                    case Call(id) => canFail(id)
+                    case _ => successors.badPath.isDefined
+                }
+
+                var finalJumpNeeded = true
+
+                if (mightFail) {
+                    if (successors.goodPaths.nonEmpty) {
+                        vis.visitVarInsn(Opcodes.ALOAD, 0)
+                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "good", "()Z", false)
+                        vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(successors.badPath.get))
+                    } else {
+                        jumpToSuccessors(pos, Set(successors.badPath.get))
+                        finalJumpNeeded = false
+                    }
+                }
+
                 instr match {
                     case _: (Call | DynCall) =>
-                        assume(successors.goodPaths == Set(pos + 1) && successors.badPaths.sizeIs == 1)
+                        require(successors.goodPaths == Set(pos + 1))
 
-                        val mightFail = instr match {
-                            case Call(id) => canFail(id)
-                            case _ => true
-                        }
-
-                        if (mightFail) {
-                            val goodLabel = Label()
-
+                        if (!willSetPc(function.instrs(pos + 1), function.successorInfos(pos + 1))) {
                             vis.visitVarInsn(Opcodes.ALOAD, 0)
-                            vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "good", "()Z", false)
-                            vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
-
-                            // Bad case
-                            vis.visitVarInsn(Opcodes.ALOAD, 0)
-                            vis.loadInt(successors.badPaths.head)
+                            vis.loadInt(pos + 1)
                             vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
-                            vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.badPaths.head))
-
-                            vis.visitLabel(goodLabel)
                         }
-
-                        vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.loadInt(pos + 1)
-                        vis.visitMethodInsn(Opcodes.INVOKEVIRTUAL, JIT_CONTEXT.getInternalName, "pc_$eq", "(I)V", false)
                     case _ =>
-                        jumpToSuccessors(pos, successors.combined)
+                        if (finalJumpNeeded) {
+                            jumpToSuccessors(pos, successors.goodPaths)
+                        }
                 }
             }
 
@@ -154,10 +162,16 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
         func.instrs.view.zip(func.successorInfos).exists { case (instr, successors) =>
             instr match {
                 case Call(id) => !visited.contains(id) && canFail(id, visited.incl(id))
-                case _ => successors.badPaths.nonEmpty
+                case _ => successors.badPath.isDefined
             }
         }
     }
+
+    private def willSetPc(instr: Instr, successors: SuccessorInfo): Boolean =
+        instr match {
+            case _: (Call | DynCall) => true
+            case _ => successors.goodPaths.isEmpty
+        }
 
     private def className(id: Int) = s"parsley/internal/machine/jit/gen/parsers/Parser$id"
 }

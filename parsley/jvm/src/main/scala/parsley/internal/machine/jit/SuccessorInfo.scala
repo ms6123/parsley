@@ -2,25 +2,24 @@ package parsley.internal.machine.jit
 
 import parsley.internal.machine.instructions.Instr
 
-case class SuccessorInfo(goodPaths: Set[Int], badPaths: Set[Int]) {
-    require(badPaths.sizeIs <= 1)
-
-    def combined: Set[Int] = goodPaths ++ badPaths
-}
+case class SuccessorInfo(isReachable: Boolean, isHandler: Boolean, goodPaths: Set[Int], badPath: Option[Int])
 
 object SuccessorInfo {
     def apply(instr: Instr, possibleHandlers: Iterable[List[Int]], pos: Int): SuccessorInfo = {
-        val goodPaths = Set.newBuilder[Int]
-        val badPaths = Set.newBuilder[Int]
-
-        for (handlers <- possibleHandlers) {
-            if (instr.fallThroughPath(handlers).isDefined) {
-                goodPaths += (pos + 1)
-            }
-            goodPaths ++= instr.jumpPaths(handlers).map(_._2)
-            badPaths ++= instr.failPath(handlers).map(_.head)
+        require(possibleHandlers.sizeIs <= 1)
+        if (possibleHandlers.isEmpty) {
+            return SuccessorInfo(false, false, Set.empty, Option.empty)
         }
+        val handlers = possibleHandlers.head
 
-        SuccessorInfo(goodPaths.result(), badPaths.result())
+        val goodPaths = Set.newBuilder[Int]
+        if (instr.fallThroughPath(handlers).isDefined) {
+            goodPaths += (pos + 1)
+        }
+        goodPaths ++= instr.jumpPaths(handlers).map(_._2)
+
+        val badPath = instr.failPath(handlers).map(_.head)
+
+        SuccessorInfo(true, handlers.head == pos, goodPaths.result(), badPath)
     }
 }
