@@ -43,17 +43,19 @@ object Optimizer {
             }
 
             val funcInstrs = mutable.ArrayBuffer.from(instrs.view.slice(funcRange.start, funcRange.last + 1))
-            val copiedHandlers = mutable.Map.empty[Instr, Int]
+            val copiedHandlers = mutable.Map.empty[Int, Int]
 
-            for (instr <- funcRange.map(instrs); label <- instr.labels if label >= funcRange.length) {
-                val foreignTarget = instrs(label + funcRange.start)
-                require(foreignTarget.isInstanceOf[RefailInstr])
+            for (instr <- funcRange.view.map(instrs) if !instr.isInstanceOf[Call]) {
+                for (label <- instr.labels if label >= funcRange.length) {
+                    val foreignTarget = instrs(label + funcRange.start)
+                    require(foreignTarget.isInstanceOf[RefailInstr])
 
-                val copiedIndex = copiedHandlers.getOrElseUpdate(foreignTarget, {
-                    funcInstrs += foreignTarget
-                    funcInstrs.indices.last
-                })
-                instr.relabel(it => if (it == label) copiedIndex else it)
+                    copiedHandlers.getOrElseUpdate(label, {
+                        funcInstrs += foreignTarget
+                        funcInstrs.indices.last
+                    })
+                }
+                instr.relabel(it => copiedHandlers.getOrElse(it, it))
             }
 
             tailrecOptimization(funcRange, funcInstrs)

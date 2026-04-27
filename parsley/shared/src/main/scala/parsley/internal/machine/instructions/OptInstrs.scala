@@ -152,7 +152,7 @@ private [internal] final class JumpTableCharFunPred(val pred: Char => Boolean, v
 }
 
 private [internal] final class JumpTable
-    (jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var merge: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr {
+    (jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var defaultMergeHandler: Int, private [this] var individualMergeHandler: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr {
     private [this] var defaultPreamble: Int = _
     private [this] var jumpTableFuncs: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = _
 
@@ -163,12 +163,16 @@ private [internal] final class JumpTable
             ctx.pc = dest
             if (dest != default) {
                 ctx.pushHandler(defaultPreamble)
+                ctx.pushHandler(individualMergeHandler)
                 ctx.hints = EmptyHints
+            } else {
+                ctx.pushHandler(defaultMergeHandler)
             }
-            addErrors(ctx, errorItems) // adds a handler
+            addErrors(ctx, errorItems)
         }
         else {
             addErrors(ctx, allErrorItems)
+            ctx.pushHandler(defaultMergeHandler)
             ctx.pc = default
         }
     }
@@ -188,31 +192,31 @@ private [internal] final class JumpTable
     private def addErrors(ctx: Context, errorItems: Iterable[ExpectItem]): Unit = {
         // FIXME: the more appropriate way of demanding input may be to pick 1 character, for same rationale with StringTok
         ctx.errs.push(new ExpectedError(ctx.offset, ctx.line, ctx.col, errorItems, unexpectedWidth = size))
-        ctx.pushHandler(merge)
     }
 
     override def relabel(labels: Int => Int): this.type = {
         jumpTable.relabel(labels)
         default = labels(default)
-        merge = labels(merge)
+        defaultMergeHandler = labels(defaultMergeHandler)
+        individualMergeHandler = labels(individualMergeHandler)
         defaultPreamble = default - 1
         jumpTableFuncs = jumpTable.toPartialFunctions
         this
     }
 
     // $COVERAGE-OFF$
-    override def toString: String = s"JumpTable($jumpTable, _ -> $default, $merge)"
+    override def toString: String = s"JumpTable($jumpTable, _ -> $default, $defaultMergeHandler, $individualMergeHandler)"
     // $COVERAGE-ON$
 
-    override def labels: Seq[Int] = defaultPreamble +: merge +: default +: jumpTable.labels
+    override def labels: Seq[Int] = defaultPreamble +: defaultMergeHandler +: individualMergeHandler +: default +: jumpTable.labels
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] =
-        ((merge :: handlers) -> default) +:
-            jumpTable.labels.map((merge :: defaultPreamble :: handlers) -> _)
+        ((defaultMergeHandler :: handlers) -> default) +:
+            jumpTable.labels.map((individualMergeHandler :: defaultPreamble :: handlers) -> _)
 }
 private [instructions] object JumpTable {
     private val checkDefined = (_: Any) => null

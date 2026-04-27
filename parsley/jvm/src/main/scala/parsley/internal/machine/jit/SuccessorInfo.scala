@@ -3,6 +3,8 @@ package parsley.internal.machine.jit
 import parsley.internal.machine.instructions.Instr
 
 case class SuccessorInfo(goodPaths: Set[Int], badPaths: Set[Int]) {
+    require(badPaths.sizeIs <= 1)
+
     def combined: Set[Int] = goodPaths ++ badPaths
 }
 

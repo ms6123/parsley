@@ -318,11 +318,12 @@ private [backend] object Choice {
                                                          (implicit instrs: InstrBuffer, state: CodeGenState): M[R, Unit] = {
         val end = state.freshLabel()
         val default = state.freshLabel()
-        val merge = state.getLabel(instructions.MergeErrorsAndFail)
+        val defaultMergeHandler = state.getLabel(instructions.MergeErrorsAndFail)
+        val individualMergeHandler = state.getLabel(instructions.MergeErrorsAndFail)
         val (roots, jumpTable, size, expecteds) = foldJumpTableGroups(groups, state)
-        instrs += new instructions.JumpTable(jumpTable, default, merge, size, expecteds)
+        instrs += new instructions.JumpTable(jumpTable, default, defaultMergeHandler, individualMergeHandler, size, expecteds)
         codeGenRoots(roots, end, producesResults) >> {
-            instrs += new instructions.Catch(merge) //This instruction is reachable as default - 1
+            instrs += new instructions.Catch(defaultMergeHandler) //This instruction is reachable as default - 1
             instrs += new instructions.Label(default)
             if (needsDefault) {
                 instrs += instructions.Empty.zero

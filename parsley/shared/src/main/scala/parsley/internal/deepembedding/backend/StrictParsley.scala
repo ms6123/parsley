@@ -290,56 +290,86 @@ private [deepembedding] class CodeGenState(val numRefs: Int) {
     // to several handler maps within the state
 
     /** A map of generic handler instructions to some assigned jump-label. */
-    private val handlerMap = mutable.Map.empty[Instr, Int]
+    private val handlerMap = mutable.Map.empty[Instr, mutable.Buffer[Int]]
     /** A map of error labels to the assigned jump-label to its instruction. */
-    private val relabelErrorMap = mutable.Map.empty[scala.Seq[String], Int]
+    private val relabelErrorMap = mutable.Map.empty[scala.Seq[String], mutable.Buffer[Int]]
     /** A map of reasons to the assigned jump-label to its instruction. */
-    private val applyReasonMap = mutable.Map.empty[String, Int]
+    private val applyReasonMap = mutable.Map.empty[String, mutable.Buffer[Int]]
     /** A map of registers to the assigned jump-label to its instruction. */
-    private val putAndFailMap = mutable.Map.empty[Ref[?], Int]
+    private val putAndFailMap = mutable.Map.empty[Ref[?], mutable.Buffer[Int]]
     /** A map of dislodge amounts to the assigned jump-label to its instruction. */
-    private val dislodgeAndFailMap = mutable.Map.empty[Int, Int]
+    private val dislodgeAndFailMap = mutable.Map.empty[Int, mutable.Buffer[Int]]
 
     /** Given a generic handler instruction, fetch the corresponding jump-label
       * that will represent it in the final instruction array.
       */
-    def getLabel(handler: Instr): Int  = handlerMap.getOrElseUpdate(handler, freshLabel())
+    def getLabel(handler: Instr): Int  = {
+        val label = freshLabel()
+        handlerMap.getOrElseUpdate(handler, mutable.Buffer.empty) += label
+        label
+    }
     /** Given a error label, fetch the corresponding jump-label that will represent
       * the `RelabelError(label)` instruction in the final instruction array.
       */
-    def getLabelForRelabelError(labels: scala.Seq[String]): Int = relabelErrorMap.getOrElseUpdate(labels, freshLabel())
+    def getLabelForRelabelError(labels: scala.Seq[String]): Int = {
+        val label = freshLabel()
+        relabelErrorMap.getOrElseUpdate(labels, mutable.Buffer.empty) += label
+        label
+    }
     /** Given an error reason, fetch the corresponding jump-label that will represent
       * the `ApplyReason(reason)` instruction in the final instruction array.
       */
-    def getLabelForApplyReason(reason: String): Int = applyReasonMap.getOrElseUpdate(reason, freshLabel())
+    def getLabelForApplyReason(reason: String): Int = {
+        val label = freshLabel()
+        applyReasonMap.getOrElseUpdate(reason, mutable.Buffer.empty) += label
+        label
+    }
     /** Given a register, fetch the corresponding jump-label that will represent
       * the `PutAndFail(reg)` instruction in the final instruction array.
       */
-    def getLabelForPutAndFail(reg: Ref[?]): Int = putAndFailMap.getOrElseUpdate(reg, freshLabel())
+    def getLabelForPutAndFail(reg: Ref[?]): Int = {
+        val label = freshLabel()
+        putAndFailMap.getOrElseUpdate(reg, mutable.Buffer.empty) += label
+        label
+    }
     /** Given an amount to dislodge, fetch the corresponding jump-label that will represent
       * the `DislodgeAndFail(reg)` instruction in the final instruction array.
       */
-    def getLabelForDislodgeAndFail(n: Int): Int = dislodgeAndFailMap.getOrElseUpdate(n, freshLabel())
+    def getLabelForDislodgeAndFail(n: Int): Int = {
+        val label = freshLabel()
+        dislodgeAndFailMap.getOrElseUpdate(n, mutable.Buffer.empty) += label
+        label
+    }
 
     /** An iterator over all the handler instructions and their corresponding jump-labels that have
       * been demanded during the process of code-generation.
       */
     def handlers: Iterator[(Instr, Int)] = {
-        val relabelErrors = relabelErrorMap.view.map {
-            case (labels, i) => new instructions.RelabelErrorAndFail(labels) -> i
+        val relabelErrors = relabelErrorMap.view.flatMap {
+            case (labels, is) =>
+                val instr = new instructions.RelabelErrorAndFail(labels)
+                is.map(instr -> _)
         }
-        val applyReasons = applyReasonMap.view.map {
-            case (reason, i) => new instructions.ApplyReasonAndFail(reason) -> i
+        val applyReasons = applyReasonMap.view.flatMap {
+            case (reason, is) =>
+                val instr = new instructions.ApplyReasonAndFail(reason)
+                is.map(instr -> _)
         }
-        val putAndFail = putAndFailMap.view.map {
-            case (reg, i) => new instructions.PutAndFail(reg.addr) -> i
+        val putAndFail = putAndFailMap.view.flatMap {
+            case (reg, is) =>
+                val instr = new instructions.PutAndFail(reg.addr)
+                is.map(instr -> _)
         }
-        val dislodgeAndFail = dislodgeAndFailMap.view.map {
-            case (n, i) => new instructions.DislodgeAndFail(n) -> i
+        val dislodgeAndFail = dislodgeAndFailMap.view.flatMap {
+            case (n, is) =>
+                val instr = new instructions.DislodgeAndFail(n)
+                is.map(instr -> _)
         }
         new Iterator[(Instr, Int)] {
             private var rest = List(relabelErrors.iterator, applyReasons.iterator, putAndFail.iterator, dislodgeAndFail.iterator)
-            private var cur = handlerMap.iterator
+            private var cur = handlerMap.view.flatMap {
+                case (instr, is) => is.map(instr -> _)
+            }.iterator
             override def hasNext: Boolean = {
                 cur.hasNext || (rest.nonEmpty && {
                     cur = rest.head
