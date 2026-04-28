@@ -73,6 +73,10 @@ lazy val parsley = crossProject(JSPlatform, JVMPlatform, NativePlatform)
 
     Compile / doc / scalacOptions ++= Seq("-groups", "-doc-root-content", s"${baseDirectory.value.getParentFile.getPath}/rootdoc.md"),
   )
+  .jvmSettings(
+    libraryDependencies += "org.ow2.asm" % "asm" % "9.6",
+    libraryDependencies += "org.ow2.asm" % "asm-util" % "9.6",
+  )
   .jsSettings(
     // JS lacks the IO module, so has its own rootdoc
     Compile / doc / scalacOptions ++= Seq("-doc-root-content", s"${baseDirectory.value.getPath}/rootdoc.md"),

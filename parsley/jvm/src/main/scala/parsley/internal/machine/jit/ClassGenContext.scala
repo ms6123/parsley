@@ -1,7 +1,6 @@
 package parsley.internal.machine.jit
 
 import java.io.File
-import java.lang.invoke.{MethodHandles, MethodType}
 import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
@@ -10,6 +9,7 @@ import scala.reflect.ClassTag
 import parsley.internal.machine.jit.ClassGenContext.objectPools
 
 import org.objectweb.asm.*
+import org.objectweb.asm.util.CheckClassAdapter
 
 private val SHOULD_DUMP_CLASSES = System.getProperty("parsley.jit.dump", "false").toBoolean
 private val JIT_RUNTIME = Type.getInternalName(classOf[JitRuntime])
@@ -21,7 +21,7 @@ class ClassGenContext {
     def newClass(access: Int, name: String, superName: String = "java/lang/Object", interfaces: Seq[String] = Seq.empty)
                 (builder: ClassGenVisitor => Unit): Class[?] = {
         val writer = ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        val visitor = ClassGenVisitor(writer, name)
+        val visitor = ClassGenVisitor(CheckClassAdapter(writer), name)
         visitor.visit(Opcodes.V1_8, access, name, null, superName, interfaces.toArray)
         builder(visitor)
         visitor.visitEnd()
