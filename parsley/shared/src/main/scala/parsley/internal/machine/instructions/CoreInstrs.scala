@@ -170,7 +170,7 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
 private [internal] object PopHandler extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -235,7 +235,7 @@ private [internal] object PopHandlerAndState extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.states = ctx.states.tail
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -267,7 +267,7 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         // TODO: should this be mergeHints?
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.pc = label
     }
     // $COVERAGE-OFF$
@@ -284,7 +284,7 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
 private [internal] final class JumpAndPopState(var label: Int) extends InstrWithLabel {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.states = ctx.states.tail
         ctx.pc = label
     }
@@ -303,12 +303,8 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        val handler = ctx.handlers
-        ctx.catchNoConsumed(handler.check) {
-            assume(handler.stacksz == ctx.stack.usize && handler.check == ctx.offset
-                && handler.hints == ctx.hints && handler.hintOffset == ctx.currentHintsValidOffset,
-                "the handler can be re-used")
-            handler.pc = label
+        ctx.catchNoConsumed(ctx.handlers.check) {
+            ctx.replaceHandler(label)
             ctx.inc()
         }
     }
@@ -327,11 +323,7 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
         ctx.restoreState()
         ctx.restoreHints()
         ctx.good = true
-        val handler = ctx.handlers
-        assume(handler.stacksz == ctx.stack.usize && handler.check == ctx.offset
-            && handler.hints == ctx.hints && handler.hintOffset == ctx.currentHintsValidOffset,
-               "the handler can be re-used")
-        handler.pc = label
+        ctx.replaceHandler(label)
         ctx.inc()
     }
     // $COVERAGE-OFF$

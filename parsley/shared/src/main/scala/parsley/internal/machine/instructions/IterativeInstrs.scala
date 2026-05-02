@@ -20,7 +20,7 @@ private [internal] final class Many(var label: Int) extends InstrWithLabel {
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.exchangeAndContinue(ctx.stack.peek[mutable.Builder[Any, Any]].result())
         }
@@ -45,7 +45,7 @@ private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.inc()
         }
@@ -71,7 +71,7 @@ private [internal] final class ChainPost(var label: Int) extends InstrWithLabel 
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.inc()
         }
@@ -104,7 +104,7 @@ private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.inc()
         }
@@ -131,7 +131,7 @@ private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
         }
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.inc()
         }
@@ -162,7 +162,7 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
         val f = ctx.stack.pop[(Any, Any) => Any]()
         val x = ctx.stack.upop()
         ctx.stack.exchange(new ROps(f, x, ctx.stack.peek[ROps]))
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.pc = label
     }
 
@@ -181,7 +181,7 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             val y = ctx.stack.upop()
             ctx.exchangeAndContinue(ROps.reduce(ctx.stack.peek[ROps], wrap(y)))
@@ -208,7 +208,7 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
         ctx.stack.peek[mutable.Builder[Any, Any]] += x
         ctx.stack.upush(true)
         // pop second handler and jump
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.updateCheckOffset()
         ctx.pc = label
     }
@@ -239,7 +239,7 @@ private [internal] object SepEndBy1SepHandler extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         // p succeeded and sep didn't, so push p and fall-through to the whole handler
         val x = ctx.stack.upop()
         ctx.stack.pop_() // the bool is no longer needed
@@ -263,7 +263,7 @@ private [internal] object SepEndBy1WholeHandler extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         val readP = ctx.stack.pop[Boolean]()
         SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, check, ctx.stack.peek[mutable.Builder[Any, Any]], readP)
     }

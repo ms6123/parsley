@@ -64,7 +64,7 @@ private [internal] final class RecoverWith[A](x: A) extends Instr {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.pushAndContinue(x)
         }
@@ -83,7 +83,7 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints() // This must be before adding the error to hints
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.addErrorToHintsAndPop()
         ctx.good = true
         ctx.pushAndContinue(x)

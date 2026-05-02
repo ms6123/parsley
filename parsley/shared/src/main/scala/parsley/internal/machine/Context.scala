@@ -24,8 +24,6 @@ import stacks.{ArrayStack, CallStack, ErrorStack, HandlerStack, Stack, StateStac
 private [parsley] abstract class Context(private[machine] val input: String,
                                         numRegs: Int,
                                         private val sourceFile: Option[String]) {
-    private [machine] type HandlerStackT <: HandlerStack[HandlerStackT]
-
     /** This is the operand stack, where results go to live  */
     private [machine] val stack: ArrayStack[Any] = new ArrayStack()
     /** Current offset into the input */
@@ -38,7 +36,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] var good: Boolean = true
     private [machine] var running: Boolean = true
     /** Stack of handlers, which track the call depth, program counter and stack size of error handlers */
-    private [machine] var handlers: HandlerStackT = _
+    private [machine] def handlers: HandlerStack
     /** Current offset into program instruction buffer */
     private [machine] var pc: Int = 0
     /** Current line number */
@@ -114,7 +112,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] def catchNoConsumed(check: Int)(handler: =>Unit): Unit = {
         assert(!good, "catching can only be performed in a handler")
         if (offset != check) {
-            handlers = handlers.tail
+            popHandler()
             fail()
         }
         else {
@@ -204,6 +202,8 @@ private [parsley] abstract class Context(private[machine] val input: String,
         col += n
     }
     private [machine] def pushHandler(label: Int): Unit
+    private [machine] def popHandler(): Unit
+    private [machine] def replaceHandler(label: Int): Unit
     private [machine] def refreshState(): Unit = {
         val state = states
         state.offset = offset

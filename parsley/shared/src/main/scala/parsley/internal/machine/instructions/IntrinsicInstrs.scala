@@ -205,7 +205,7 @@ private [internal] object NegLookFail extends Instr with RefailInstr {
         ctx.restoreState()
         ctx.restoreHints()
         // A previous success is a failure
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.expectedFail(None, reached - ctx.offset)
     }
     // $COVERAGE-OFF$
@@ -219,7 +219,7 @@ private [internal] object NegLookGood extends Instr {
         // Recover the previous state; notFollowedBy NEVER consumes input
         ctx.restoreState()
         ctx.restoreHints()
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         // A failure is what we wanted
         ctx.good = true
         ctx.errs.pop_()
@@ -287,12 +287,12 @@ private [instructions] abstract class FilterLike extends Instr {
 
     final def carryOn(ctx: Context): Unit = {
         ctx.states = ctx.states.tail
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.pc = good
     }
 
     final def fail(ctx: Context, x: Any): Unit = {
-        ctx.handlers.pc = bad
+        ctx.replaceHandler(bad)
         ctx.exchangeAndContinue((x, ctx.offset - ctx.states.offset))
     }
 
@@ -348,7 +348,7 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
         val x = ctx.stack.upeek
         val state = ctx.states
         ctx.states = state.tail
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         pred.applyOrElse(x, FilterPartial.orNull) match {
             case null => ctx.inc()
             case (unex, reason) =>
@@ -375,7 +375,7 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
         val x = ctx.stack.upeek
         val state = ctx.states
         ctx.states = state.tail
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         pred(x) match {
             case Right(y) => ctx.exchangeAndContinue(y)
             case Left(msgs) =>

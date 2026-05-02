@@ -17,7 +17,7 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
         // COK
         // do nothing
         ctx.mergeHints()
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -39,7 +39,7 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
             // as the check stack saved for the start of the `label` combinator.
             ctx.errs.peek.label(labels, ctx.handlers.check)
         })
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.fail()
     }
     // $COVERAGE-OFF$
@@ -53,7 +53,7 @@ private [internal] object HideHints extends Instr {
         // according to old label logic, we do this unconditionally
         /*if (ctx.offset == ctx.handlers.check)*/ ctx.popHints()
         ctx.mergeHints()
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -71,7 +71,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         if (ctx.offset == ctx.handlers.check) ctx.errs.exchange(new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = 0))
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.fail()
     }
     // $COVERAGE-OFF$
@@ -82,7 +82,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
 private [internal] object ErrorToHints extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.addErrorToHintsAndPop()
         ctx.inc()
     }
@@ -99,7 +99,7 @@ private [internal] object ErrorToHints extends Instr {
 private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         val err2 = ctx.errs.pop[DefuncError]()
         ctx.errs.exchange(ctx.errs.peek.merge(err2))
         ctx.fail()
@@ -114,7 +114,7 @@ private [internal] class ApplyReasonAndFail(reason: String) extends Instr with R
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.errs.exchange(ctx.errs.peek.withReason(reason, ctx.handlers.check))
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.fail()
     }
 
@@ -127,7 +127,7 @@ private [internal] class AmendAndFail private (partial: Boolean) extends Instr w
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.errs.exchange(ctx.errs.peek.amend(partial, ctx.states.offset, ctx.states.line, ctx.states.col))
         ctx.states = ctx.states.tail
         ctx.fail()
@@ -146,7 +146,7 @@ private [internal] object AmendAndFail {
 private [internal] object EntrenchAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.errs.exchange(ctx.errs.peek.entrench)
         ctx.fail()
     }
@@ -159,7 +159,7 @@ private [internal] object EntrenchAndFail extends Instr with RefailInstr {
 private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.errs.exchange(ctx.errs.peek.dislodge(n))
         ctx.fail()
     }
@@ -173,7 +173,7 @@ private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.errs.exchange(ctx.errs.peek.markAsLexical(ctx.handlers.check))
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.fail()
     }
 

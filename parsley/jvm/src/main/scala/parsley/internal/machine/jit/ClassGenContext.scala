@@ -1,6 +1,7 @@
 package parsley.internal.machine.jit
 
 import java.io.File
+import java.lang.reflect.{Method, Modifier}
 import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
@@ -95,6 +96,21 @@ class ClassGenContext {
                 case _ if (Short.MinValue to Short.MaxValue).contains(i) => visitIntInsn(Opcodes.SIPUSH, i)
                 case _ => visitLdcInsn(i)
             }
+        }
+
+        def callMethod(method: Method): Unit = {
+            val modifiers = method.getModifiers
+            val isInterface = method.getDeclaringClass.isInterface
+            val opcode = if (Modifier.isStatic(modifiers)) {
+                Opcodes.INVOKESTATIC
+            } else if (Modifier.isPrivate(modifiers)) {
+                Opcodes.INVOKESPECIAL
+            } else if (isInterface) {
+                Opcodes.INVOKEINTERFACE
+            } else {
+                Opcodes.INVOKEVIRTUAL
+            }
+            visitMethodInsn(opcode, Type.getInternalName(method.getDeclaringClass), method.getName, Type.getMethodDescriptor(method), isInterface)
         }
 
         override def visitEnd(): Unit = {

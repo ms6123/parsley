@@ -7,16 +7,16 @@ import parsley.errors.ErrorBuilder
 
 import parsley.internal.machine.Context
 import parsley.internal.machine.errors.DefuncHints
-import parsley.internal.machine.stacks.HandlerStack
+import parsley.internal.machine.stacks.{HandlerStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
 
 import parsley.{Failure, Success}
 
-private[jit] class JitContext(private val startMethod: MethodHandle,
+private[jit] final class JitContext(private val startMethod: MethodHandle,
                               input: String,
                               numRegs: Int,
                               sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
-    override private[machine] type HandlerStackT = JitHandlerStack
+    private[machine] var handlers: JitHandlerStack = Stack.empty
 
     override private[parsley] def run[Err: ErrorBuilder, A]() = {
         //noinspection ScalaUnusedExpression
@@ -52,6 +52,12 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
         handlers = new JitHandlerStack(stack.usize, offset, hints, hintsValidOffset, handlers)
     }
 
+    override private[machine] def popHandler(): Unit = {
+        handlers = handlers.tail
+    }
+
+    override private[machine] def replaceHandler(label: Int): Unit = ()
+
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {
         s"""[
@@ -69,13 +75,26 @@ private[jit] class JitContext(private val startMethod: MethodHandle,
     // $COVERAGE-ON$
 }
 
-private class JitHandlerStack(stacksz: Int,
-                              check: Int,
-                              hints: DefuncHints,
-                              hintOffset: Int,
-                              val tail: JitHandlerStack
-                             ) extends HandlerStack[JitHandlerStack](stacksz, check, hints, hintOffset) {
-    override def pc: Int = -1
+private final class JitHandlerStack(val stacksz: Int,
+                                    var check: Int,
+                                    val hints: DefuncHints,
+                                    val hintOffset: Int,
+                                    val tail: JitHandlerStack,
+                                   ) extends HandlerStack
 
-    override def pc_=(v: Int): Unit = ()
+private [machine] object JitHandlerStack extends Stack[JitHandlerStack] {
+    type ElemTy = Int
+
+    // $COVERAGE-OFF$
+    implicit val inst: Stack[JitHandlerStack] = this
+
+    // TODO: needs to change
+    override protected def show(x: Int): String = {
+        s"Handler:(-${x + 1})"
+    }
+
+    override protected def head(xs: JitHandlerStack): ElemTy = xs.stacksz
+
+    override protected def tail(xs: JitHandlerStack): JitHandlerStack = xs.tail
+    // $COVERAGE-ON$
 }

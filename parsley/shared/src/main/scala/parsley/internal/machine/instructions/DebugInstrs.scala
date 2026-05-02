@@ -121,7 +121,7 @@ private [internal] final class LogEnd(val name: String, val ascii: Boolean, brea
     override def apply(ctx: Context): Unit = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         val end = " " + {
             if (ctx.good) {
                 ctx.inc()
@@ -191,7 +191,7 @@ private [internal] final class LogErrEnd(override val name: String, override val
     override def apply(ctx: Context): Unit = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         @unused val currentHintsValidOffset = ctx.currentHintsValidOffset
         if (ctx.good) {
             // In this case, the currently in-flight hints should be reported
@@ -273,7 +273,7 @@ private [internal] final class ProfileExit(name: String, profiler: Profiler) ext
     private [this] val exits = profiler.exitsFor(name)
     override def apply(ctx: Context): Unit = {
         exits += profiler.monotone(System.nanoTime())
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         if (ctx.good) ctx.inc()
         else ctx.fail()
     }

@@ -26,7 +26,7 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
 private [internal] object RestoreAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         // Pop input off head then fail to next handler
         ctx.restoreState()
         ctx.fail()
@@ -41,7 +41,7 @@ private [internal] object RestoreHintsAndState extends Instr {
         ensureRegularInstruction(ctx)
         ctx.restoreHints()
         ctx.restoreState()
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -56,7 +56,7 @@ private [internal] object RestoreHintsAndState extends Instr {
 private [internal] object PopStateAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.states = ctx.states.tail
         ctx.fail()
     }
@@ -69,7 +69,7 @@ private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailI
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.states = ctx.states.tail
         ctx.fail()
     }
@@ -144,7 +144,7 @@ private [internal] final class Put(reg: Int) extends Instr {
 private [internal] final class PutAndFail(reg: Int) extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.writeReg(reg, ctx.stack.upeek)
         ctx.fail()
     }
@@ -159,7 +159,7 @@ private [internal] object Span extends Instr {
         ensureRegularInstruction(ctx)
         val startOffset = ctx.states.offset
         ctx.states = ctx.states.tail
-        ctx.handlers = ctx.handlers.tail
+        ctx.popHandler()
         ctx.pushAndContinue(ctx.input.substring(startOffset, ctx.offset))
     }
     // $COVERAGE-OFF$

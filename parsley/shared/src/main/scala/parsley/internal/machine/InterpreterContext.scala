@@ -15,7 +15,7 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
                                           input: String,
                                           numRegs: Int,
                                           sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
-    override private[machine] type HandlerStackT = InterpreterHandlerStack
+    private [machine] var handlers: InterpreterHandlerStack = Stack.empty
 
     private [machine] var instrs: Array[Instr] = _
     /** Call stack consisting of Frames that track the return position and the old instructions */
@@ -72,6 +72,14 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         handlers = new InterpreterHandlerStack(calls, instrs, label, stack.usize, offset, hints, hintsValidOffset, handlers)
     }
 
+    override private[machine] def popHandler(): Unit = {
+        handlers = handlers.tail
+    }
+
+    override private[machine] def replaceHandler(label: Int): Unit = {
+        handlers.pc = label
+    }
+
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {
         s"""[
@@ -94,9 +102,27 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
 private class InterpreterHandlerStack(val calls: CallStack,
                                       val instrs: Array[Instr],
                                       var pc: Int,
-                                      stacksz: Int,
-                                      check: Int,
-                                      hints: DefuncHints,
-                                      hintOffset: Int,
+                                      val stacksz: Int,
+                                      var check: Int,
+                                      val hints: DefuncHints,
+                                      val hintOffset: Int,
                                       val tail: InterpreterHandlerStack
-                                     ) extends HandlerStack[InterpreterHandlerStack](stacksz, check, hints, hintOffset)
+                                     ) extends HandlerStack
+
+private [machine] object InterpreterHandlerStack extends Stack[InterpreterHandlerStack] {
+    type ElemTy = (Int, Int)
+
+    // $COVERAGE-OFF$
+    implicit val inst: Stack[InterpreterHandlerStack] = this
+
+    // TODO: needs to change
+    override protected def show(x: ElemTy): String = {
+        val (pc, stacksz) = x
+        s"Handler:$pc(-${stacksz + 1})"
+    }
+
+    override protected def head(xs: InterpreterHandlerStack): ElemTy = (xs.pc, xs.stacksz)
+
+    override protected def tail(xs: InterpreterHandlerStack): InterpreterHandlerStack = xs.tail
+    // $COVERAGE-ON$
+}

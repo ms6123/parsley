@@ -50,7 +50,7 @@ private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Op
     private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit =  {
         if (state.operators.nonEmpty && prec.compare(state.operators.peek.prec) < 0) {
             // This is a malformed expression
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             val width = shunt.restoreStateGetWidth(ctx)
             ctx.expectedFail(Nil, width)
         } else {
@@ -70,7 +70,7 @@ private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends O
     private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: Shunt): Unit = {
         if (state.operators.nonEmpty && state.operators.peek.isPostfix && prec.compare(state.operators.peek.prec) > 0) {
             // This was an unexpected postfix operator
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             ctx.restoreState()
             shunt.produceResult(ctx)
         } else {
@@ -122,7 +122,7 @@ private [internal] final class InfixNOp(f: (Any, Any) => Any, val prec: Int) ext
         reduceWhilePrecGreater(state, shunt)
         if (state.operators.nonEmpty && state.operators.peek.isInfixNonAssoc && state.operators.peek.prec == prec) {
             // This is a special case in which non-associative operators are chained
-            ctx.handlers = ctx.handlers.tail
+            ctx.popHandler()
             val width = shunt.restoreStateGetWidth(ctx)
             ctx.expectedFailWithReason(Nil, "operator cannot be applied in sequence as it is non-associative", width)
         } else {
@@ -160,10 +160,10 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
     }
 
     private final def handleBadContext(ctx: Context): Unit = {
-        val handler = ctx.handlers
-        ctx.handlers = ctx.handlers.tail
+        val handlerCheck = ctx.handlers.check
+        ctx.popHandler()
         ctx.states = ctx.states.tail
-        if (ctx.offset != handler.check || ctx.stack.peek[ShuntingYardState].failOnNoConsumed) {
+        if (ctx.offset != handlerCheck || ctx.stack.peek[ShuntingYardState].failOnNoConsumed) {
             // consumed input and/or prefix/atom choice did not match, hard failure
             ctx.fail()
         } else {
