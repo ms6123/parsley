@@ -130,7 +130,7 @@ final class Parsley[+A] private [parsley] (private [parsley] val internal: front
       * @group run
       */
     def parse[Err: ErrorBuilder](input: String): Result[Err, A] = {
-        try internal.runner.newContext(input, internal.numRefs, None).run()
+        try internal.runner.run(input, internal.numRefs, None)
         catch {
             // $COVERAGE-OFF$
             case UserException(err) => throw err // scalastyle:ignore throw

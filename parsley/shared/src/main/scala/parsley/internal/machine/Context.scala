@@ -103,8 +103,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def pretty: String
 
-    private [parsley] def run[Err: ErrorBuilder, A](): Result[Err, A]
-
     private [machine] def call(at: Int): Unit
 
     private [machine] def ret(): Unit
@@ -257,14 +255,14 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
 private [parsley] object Context {
     def interpreterRunner(instrs: Array[Instr]): ParseRunner = new ParseRunner {
-        override type ContextT = InterpreterContext
+        override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
+            InterpreterContext(instrs, input, numRegs, sourceFile).run()
 
-        override def newContext(input: String, numRegs: Int, sourceFile: Option[String]): InterpreterContext =
-            InterpreterContext(instrs, input, numRegs, sourceFile)
-
-        override def dynCall(ctx: InterpreterContext): Unit = {
-            ctx.call(0)
-            ctx.instrs = instrs
-        }
+        override def dynCall(ctx: Context): Unit =
+            ctx match {
+                case ctx: InterpreterContext =>
+                    ctx.call(0)
+                    ctx.instrs = instrs
+            }
     }
 }

@@ -9,7 +9,7 @@ import parsley.internal.machine.stacks.{CallStack, HandlerStack}
 import parsley.internal.machine.stacks.Stack
 import parsley.internal.machine.stacks.Stack.StackExt
 
-import parsley.{Failure, Success}
+import parsley.{Failure, Result, Success}
 
 private[machine] class InterpreterContext(private[this] val startInstrs: Array[Instr],
                                           input: String,
@@ -21,7 +21,7 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     /** Call stack consisting of Frames that track the return position and the old instructions */
     private[machine] var calls: CallStack = Stack.empty
 
-    override private[parsley] def run[Err: ErrorBuilder, A]() = {
+    def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         instrs = startInstrs
         while (running) {
             instrs(pc)(this)

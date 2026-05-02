@@ -5,10 +5,13 @@ import java.lang.reflect.Method
 
 import scala.collection.mutable
 
+import parsley.errors.ErrorBuilder
+
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 
 import org.objectweb.asm.{Label, Opcodes, Type}
+import parsley.Result
 
 private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
@@ -36,12 +39,14 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
         val classes = functions.map(generate)
         val startMethod = MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[JitContext]))
         new ParseRunner {
-            override type ContextT = JitContext
+            override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
+                JitContext(startMethod, input, numRegs, sourceFile).run()
 
-            override def newContext(input: String, numRegs: Int, sourceFile: Option[String]): ContextT =
-                JitContext(startMethod, input, numRegs, sourceFile)
-
-            override def dynCall(ctx: JitContext): Unit = startMethod.invokeExact(ctx)
+            override def dynCall(ctx: Context): Unit =
+                ctx match {
+                    case ctx: JitContext =>
+                        startMethod.invokeExact(ctx)
+                }
         }
     }
 

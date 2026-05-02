@@ -10,7 +10,7 @@ import parsley.internal.machine.errors.DefuncHints
 import parsley.internal.machine.stacks.{HandlerStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
 
-import parsley.{Failure, Success}
+import parsley.{Failure, Result, Success}
 
 private[jit] final class JitContext(private val startMethod: MethodHandle,
                               input: String,
@@ -18,7 +18,7 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
                               sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
     private[machine] var handlers: JitHandlerStack = Stack.empty
 
-    override private[parsley] def run[Err: ErrorBuilder, A]() = {
+    def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         //noinspection ScalaUnusedExpression
         startMethod.invokeExact(this): Unit
         if (good) {

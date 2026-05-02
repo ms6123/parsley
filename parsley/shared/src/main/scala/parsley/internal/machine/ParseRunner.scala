@@ -1,9 +1,10 @@
 package parsley.internal.machine
 
+import parsley.Result
+import parsley.errors.ErrorBuilder
+
 private[parsley] trait ParseRunner {
-    type ContextT <: Context
-    
-    def newContext(input: String, numRegs: Int, sourceFile: Option[String]): ContextT
-    
-    def dynCall(ctx: ContextT): Unit
+    def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A]
+
+    def dynCall(ctx: Context): Unit
 }
