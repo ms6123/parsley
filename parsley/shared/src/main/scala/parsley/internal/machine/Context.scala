@@ -45,57 +45,22 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] var col: Int = 1
     /** State held by the registers, AnyRef to allow for `null` */
     private [machine] var regs: Array[AnyRef] = new Array[AnyRef](numRegs)
-    /** Amount of indentation to apply to debug combinators output */
-    private [machine] var debuglvl: Int = 0
-
-    // NEW ERROR MECHANISMS
-    private [machine] var hints: DefuncHints = EmptyHints
-    protected var hintsValidOffset = 0
-    private [machine] val errs: ArrayStack[DefuncError] = new ArrayStack()
-
-    private [machine] def restoreHints(): Unit = {
-        val hintFrame = this.handlers
-        this.hintsValidOffset = hintFrame.hintOffset
-        this.hints = hintFrame.hints
-    }
-
-    /* Error Debugging Info */
-    private [machine] def inFlightHints: DefuncHints = hints
-    private [machine] def inFlightError: DefuncError = errs.peek
-    private [machine] def currentHintsValidOffset: Int = hintsValidOffset
 
     /* ERROR RELABELLING BEGIN */
-    private [machine] def mergeHints(): Unit = {
-        val hintFrame = this.handlers
-        if (hintFrame.hintOffset == offset) this.hints = hintFrame.hints.merge(this.hints)
-    }
-    private [machine] def replaceHint(labels: Iterable[String]): Unit = hints = hints.rename(labels)
-    private [machine] def popHints(): Unit = hints = hints.pop
+    private[machine] def mergeHints(): Unit
+
+    private[machine] def replaceHint(labels: Iterable[String]): Unit
+
+    private[machine] def popHints(): Unit
     /* ERROR RELABELLING END */
 
-    def invalidateHints(): Unit = {
-        if (hintsValidOffset < offset) {
-            hints = EmptyHints
-            hintsValidOffset = offset
-        }
-    }
+    private [machine] def restoreHints(): Unit
 
-    private def addErrorToHints(err: DefuncError): Unit = {
-        assume(!(!err.isExpectedEmpty) || err.isTrivialError, "not having an empty expected implies you are a trivial error")
-        if (/*err.isTrivialError && */ !err.isExpectedEmpty && err.presentationOffset == offset) { // scalastyle:ignore disallow.space.after.token
-            // If our new hints have taken place further in the input stream, then they must invalidate the old ones
-            invalidateHints()
-            hints = hints.addError(err)
-        }
-    }
-    private [machine] def addErrorToHintsAndPop(): Unit = {
-        this.addErrorToHints(errs.pop())
-    }
-    private [machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int) = {
-        assume(expecteds.nonEmpty, "hints must always be non-empty")
-        invalidateHints()
-        hints = hints.addError(new ExpectedError(this.offset, this.line, this.col, expecteds, unexpectedWidth)) // TODO: this can be optimised further
-    }
+    private [machine] def addErrorToHintsAndPop(): Unit
+
+    private [machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int): Unit
+
+    private [machine] def clearHints(): Unit
 
     private [machine] def updateCheckOffset() = {
         this.handlers.check = this.offset
@@ -119,15 +84,25 @@ private [parsley] abstract class Context(private[machine] val input: String,
         }
     }
 
-    private [machine] def pushError(err: DefuncError): Unit = errs.push(this.useHints(err))
-    private [machine] def useHints(err: DefuncError): DefuncError = {
-        if (hintsValidOffset == err.presentationOffset) err.withHints(hints)
-        else {
-            hintsValidOffset = err.presentationOffset
-            hints = EmptyHints
-            err
-        }
-    }
+    private [machine] def pushError(err: =>DefuncError): Unit
+
+    private [machine] def popError(): Unit
+
+    private [machine] def relabelError(labels: Iterable[String]): Unit
+
+    private [machine] def hideError(): Unit
+
+    private [machine] def mergeErrors(): Unit
+
+    private [machine] def applyReason(reason: String): Unit
+
+    private [machine] def amendError(partial: Boolean): Unit
+
+    private [machine] def entrenchError(): Unit
+
+    private [machine] def dislodgeError(n: Int): Unit
+
+    private [machine] def markErrorAsLexical(): Unit
 
     private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Unit = {
         this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs*))
@@ -146,7 +121,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
         else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
     }
 
-    private [machine] def fail(error: DefuncError): Unit = {
+    private [machine] def fail(error: =>DefuncError): Unit = {
         good = false
         this.pushError(error)
         this.fail()

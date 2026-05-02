@@ -190,7 +190,7 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
-        ctx.hints = EmptyHints
+        ctx.clearHints()
         ctx.inc()
     }
     // $COVERAGE-OFF$
@@ -209,7 +209,7 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.saveState()
-        ctx.hints = EmptyHints
+        ctx.clearHints()
         ctx.inc()
     }
     // $COVERAGE-OFF$

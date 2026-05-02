@@ -169,7 +169,7 @@ private [internal] final class JumpTable
             if (dest != default) {
                 ctx.pushHandler(defaultPreamble)
                 ctx.pushHandler(individualMergeHandler)
-                ctx.hints = EmptyHints
+                ctx.clearHints()
             } else {
                 ctx.pushHandler(defaultMergeHandler)
             }
@@ -196,7 +196,7 @@ private [internal] final class JumpTable
 
     private def addErrors(ctx: Context, errorItems: Iterable[ExpectItem]): Unit = {
         // FIXME: the more appropriate way of demanding input may be to pick 1 character, for same rationale with StringTok
-        ctx.errs.push(new ExpectedError(ctx.offset, ctx.line, ctx.col, errorItems, unexpectedWidth = size))
+        ctx.pushError(new ExpectedError(ctx.offset, ctx.line, ctx.col, errorItems, unexpectedWidth = size))
     }
 
     override def relabel(labels: Int => Int): this.type = {

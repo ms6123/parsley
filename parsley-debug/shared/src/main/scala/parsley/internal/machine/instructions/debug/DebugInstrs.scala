@@ -10,15 +10,14 @@ import parsley.debug.RefCodec.CodedRef
 import parsley.debug.internal.{DebugContext, DivergenceContext}
 
 import parsley.internal.deepembedding.frontend.LazyParsley
-import parsley.internal.machine.Context
-import parsley.internal.machine.instructions.{Instr, InstrWithLabel}
+import parsley.internal.machine.{Context, InterpreterContext}
+import parsley.internal.machine.instructions.{DebugInstr, Instr, InstrWithLabel}
 import parsley.internal.machine.XAssert.*
-
 import parsley.internal.machine.stacks.Stack.StackExt
 
 // Enter into the scope of a parser in the current context.
-private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isIterative: Boolean, userAssignedName: Option[String])(dbgCtx: DebugContext) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isIterative: Boolean, userAssignedName: Option[String])(dbgCtx: DebugContext) extends InstrWithLabel with DebugInstr {
+    override def apply(ctx: InterpreterContext): Unit = {
         ensureRegularInstruction(ctx)
         // Uncomment to debug entries and exits.
         // println(s"Entering ${origin.prettyName} (@ ${ctx.pc} -> Exit @ $label)")
@@ -35,6 +34,8 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
     override def toString: String = s"EnterParser(exit: $label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = EnterParser(label, origin, isIterative, userAssignedName)(dbgCtx)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -42,8 +43,8 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
 
 // Add a parse attempt to the current context at the current callstack point, and leave the current
 // parser's scope.
-private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr {
-    override def apply(ctx: Context): Unit = {
+private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr with DebugInstr {
+    override def apply(ctx: InterpreterContext): Unit = {
         // Uncomment to debug entries and exits.
         // println(s"Leaving ${if (ctx.good) "OK" else "FAIL" } (@ ${ctx.pc})")
 
@@ -85,8 +86,8 @@ private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr 
     override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 }
 
-private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], userAssignedName: Option[String])(dtx: DivergenceContext) extends InstrWithLabel {
-    override def apply(ctx: Context): Unit = {
+private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], userAssignedName: Option[String])(dtx: DivergenceContext) extends InstrWithLabel with DebugInstr {
+    override def apply(ctx: InterpreterContext): Unit = {
         ensureRegularInstruction(ctx)
         val handler = ctx.handlers
         ctx.pushHandler(label)
@@ -99,13 +100,15 @@ private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], us
     override def toString: String = s"TakeSnapshot(until: $label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = TakeSnapshot(label, origin, userAssignedName)(dtx)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr {
-    override def apply(ctx: Context): Unit = {
+private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr with DebugInstr {
+    override def apply(ctx: InterpreterContext): Unit = {
         dtx.dropSnapshot()
         ctx.handlers = ctx.handlers.tail
         if (ctx.good) ctx.inc() else ctx.fail()

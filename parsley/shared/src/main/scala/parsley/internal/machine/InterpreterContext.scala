@@ -1,12 +1,12 @@
 package parsley.internal.machine
 
 import parsley.errors.ErrorBuilder
-import parsley.XAssert.assert
+import parsley.XAssert.{assert, assume}
 
-import parsley.internal.machine.errors.DefuncHints
+import parsley.internal.errors.ExpectItem
+import parsley.internal.machine.errors.{DefuncError, DefuncHints, EmptyError, EmptyHints, ExpectedError}
 import parsley.internal.machine.instructions.Instr
-import parsley.internal.machine.stacks.{CallStack, HandlerStack}
-import parsley.internal.machine.stacks.Stack
+import parsley.internal.machine.stacks.{ArrayStack, CallStack, HandlerStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
 
 import parsley.{Failure, Result, Success}
@@ -20,6 +20,115 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     private [machine] var instrs: Array[Instr] = _
     /** Call stack consisting of Frames that track the return position and the old instructions */
     private[machine] var calls: CallStack = Stack.empty
+    
+    // NEW ERROR MECHANISMS
+    private[machine] var hints: DefuncHints = EmptyHints
+    protected var hintsValidOffset = 0
+    private[machine] val errs: ArrayStack[DefuncError] = new ArrayStack()
+    /** Amount of indentation to apply to debug combinators output */
+    private[machine] var debuglvl: Int = 0
+
+    override private[machine] def restoreHints(): Unit = {
+        val hintFrame = this.handlers
+        this.hintsValidOffset = hintFrame.hintOffset
+        this.hints = hintFrame.hints
+    }
+
+    /* Error Debugging Info */
+    private[machine] def inFlightHints: DefuncHints = hints
+
+    private[machine] def inFlightError: DefuncError = errs.peek
+
+    private[machine] def currentHintsValidOffset: Int = hintsValidOffset
+
+    /* ERROR RELABELLING BEGIN */
+    override private[machine] def mergeHints(): Unit = {
+        val hintFrame = this.handlers
+        if (hintFrame.hintOffset == offset) this.hints = hintFrame.hints.merge(this.hints)
+    }
+
+    override private[machine] def replaceHint(labels: Iterable[String]): Unit = hints = hints.rename(labels)
+
+    override private[machine] def popHints(): Unit = hints = hints.pop
+    /* ERROR RELABELLING END */
+
+    private def invalidateHints(): Unit = {
+        if (hintsValidOffset < offset) {
+            hints = EmptyHints
+            hintsValidOffset = offset
+        }
+    }
+
+    private def addErrorToHints(err: DefuncError): Unit = {
+        assume(!(!err.isExpectedEmpty) || err.isTrivialError, "not having an empty expected implies you are a trivial error")
+        if ( /*err.isTrivialError && */ !err.isExpectedEmpty && err.presentationOffset == offset) { // scalastyle:ignore disallow.space.after.token
+            // If our new hints have taken place further in the input stream, then they must invalidate the old ones
+            invalidateHints()
+            hints = hints.addError(err)
+        }
+    }
+
+    override private[machine] def addErrorToHintsAndPop(): Unit = {
+        this.addErrorToHints(errs.pop())
+    }
+
+    override private [machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int): Unit = {
+        assume(expecteds.nonEmpty, "hints must always be non-empty")
+        invalidateHints()
+        hints = hints.addError(new ExpectedError(this.offset, this.line, this.col, expecteds, unexpectedWidth)) // TODO: this can be optimised further
+    }
+    
+    override private [machine] def clearHints(): Unit = hints = EmptyHints
+
+    override private [machine] def pushError(err: =>DefuncError): Unit = errs.push(this.useHints(err))
+
+    override private[machine] def popError(): Unit = errs.pop_()
+    
+    override private[machine] def relabelError(labels: Iterable[String]): Unit = {
+        errs.exchange(useHints {
+            // only use the label if the error message is generated at the same offset
+            // as the check stack saved for the start of the `label` combinator.
+            errs.peek.label(labels, handlers.check)
+        })
+    }
+
+    override private[machine] def hideError(): Unit = {
+        errs.exchange(new EmptyError(offset, line, col, unexpectedWidth = 0))
+    }
+
+    override private[machine] def mergeErrors(): Unit = {
+        val err2 = errs.pop[DefuncError]()
+        errs.exchange(errs.peek.merge(err2))
+    }
+
+    override private[machine] def applyReason(reason: String): Unit = {
+        errs.exchange(errs.peek.withReason(reason, handlers.check))
+    }
+
+    override private[machine] def amendError(partial: Boolean): Unit = {
+        errs.exchange(errs.peek.amend(partial, states.offset, states.line, states.col))
+    }
+
+    override private[machine] def entrenchError(): Unit = {
+        errs.exchange(errs.peek.entrench)
+    }
+
+    override private[machine] def dislodgeError(n: Int): Unit = {
+        errs.exchange(errs.peek.dislodge(n))
+    }
+
+    override private[machine] def markErrorAsLexical(): Unit = {
+        errs.exchange(errs.peek.markAsLexical(handlers.check))
+    }
+
+    private[machine] def useHints(err: DefuncError): DefuncError = {
+        if (hintsValidOffset == err.presentationOffset) err.withHints(hints)
+        else {
+            hintsValidOffset = err.presentationOffset
+            hints = EmptyHints
+            err
+        }
+    }
 
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         instrs = startInstrs

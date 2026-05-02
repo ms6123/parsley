@@ -226,7 +226,7 @@ private [internal] object NegLookGood extends Instr {
         ctx.popHandler()
         // A failure is what we wanted
         ctx.good = true
-        ctx.errs.pop_()
+        ctx.popError()
         ctx.inc()
     }
     // $COVERAGE-OFF$

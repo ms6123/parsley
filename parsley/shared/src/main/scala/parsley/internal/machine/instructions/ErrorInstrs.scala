@@ -34,11 +34,7 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
         ensureHandlerInstruction(ctx)
         // this has the effect of relabelling all hints since the start of the label combinator
         ctx.restoreHints()
-        ctx.errs.exchange(ctx.useHints {
-            // only use the label if the error message is generated at the same offset
-            // as the check stack saved for the start of the `label` combinator.
-            ctx.errs.peek.label(labels, ctx.handlers.check)
-        })
+        ctx.relabelError(labels)
         ctx.popHandler()
         ctx.fail()
     }
@@ -70,7 +66,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        if (ctx.offset == ctx.handlers.check) ctx.errs.exchange(new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = 0))
+        if (ctx.offset == ctx.handlers.check) ctx.hideError()
         ctx.popHandler()
         ctx.fail()
     }
@@ -100,8 +96,7 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
-        val err2 = ctx.errs.pop[DefuncError]()
-        ctx.errs.exchange(ctx.errs.peek.merge(err2))
+        ctx.mergeErrors()
         ctx.fail()
     }
 
@@ -113,7 +108,7 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
 private [internal] class ApplyReasonAndFail(reason: String) extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.errs.exchange(ctx.errs.peek.withReason(reason, ctx.handlers.check))
+        ctx.applyReason(reason)
         ctx.popHandler()
         ctx.fail()
     }
@@ -128,7 +123,7 @@ private [internal] class AmendAndFail private (partial: Boolean) extends Instr w
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
         ctx.popHandler()
-        ctx.errs.exchange(ctx.errs.peek.amend(partial, ctx.states.offset, ctx.states.line, ctx.states.col))
+        ctx.amendError(partial)
         ctx.states = ctx.states.tail
         ctx.fail()
     }
@@ -147,7 +142,7 @@ private [internal] object EntrenchAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
-        ctx.errs.exchange(ctx.errs.peek.entrench)
+        ctx.entrenchError()
         ctx.fail()
     }
 
@@ -160,7 +155,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
-        ctx.errs.exchange(ctx.errs.peek.dislodge(n))
+        ctx.dislodgeError(n)
         ctx.fail()
     }
 
@@ -172,7 +167,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
 private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context): Unit = {
         ensureHandlerInstruction(ctx)
-        ctx.errs.exchange(ctx.errs.peek.markAsLexical(ctx.handlers.check))
+        ctx.markErrorAsLexical()
         ctx.popHandler()
         ctx.fail()
     }

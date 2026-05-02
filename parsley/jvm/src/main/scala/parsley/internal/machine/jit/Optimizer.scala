@@ -7,7 +7,7 @@ import parsley.errors.ErrorBuilder
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 
-import parsley.Result
+import parsley.{Failure, Result, Success}
 
 private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "true").toBoolean
 private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
@@ -73,7 +73,13 @@ object Optimizer {
 
         new ParseRunner {
             override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
-                JitContext(startMethod, input, numRegs, sourceFile).run()
+                JitContext(startMethod, input, numRegs, sourceFile).run() match {
+                    case success: Success[?] => success
+                    case Failure(_) =>
+                        System.err.println(s"Falling back to interpreter")
+                        Context.interpreterRunner(originalInstrs)
+                            .run(input, numRegs, sourceFile)
+                }
 
             override def dynCall(ctx: Context): Unit =
                 ctx match {

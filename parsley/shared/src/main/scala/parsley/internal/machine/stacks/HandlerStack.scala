@@ -11,6 +11,4 @@ private [machine] abstract class HandlerStack {
     def stacksz: Int
     def check: Int
     def check_=(v: Int): Unit
-    def hints: DefuncHints
-    def hintOffset: Int
 }

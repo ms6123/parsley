@@ -74,6 +74,8 @@ private [machine] abstract class EscapeSomeNumber(radix: Int) extends Instr {
         case 8 => Some(new ExpectDesc("octal digit"))
         case 2 => Some(new ExpectDesc("bit"))
     }
+    
+    final protected val expectedSet = expected.toSet[ExpectItem]
 
     protected val pred: Char => Boolean = radix match {
         case 10 => _.isDigit
@@ -96,7 +98,7 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
             ctx.pushAndContinue(num)
         case EscapeSomeNumber.NoDigits => ctx.expectedFail(expected, unexpectedWidth = 1)
         case EscapeSomeNumber.NoMoreDigits(_, num) =>
-            ctx.addHints(expected.toSet, unexpectedWidth = 1)
+            ctx.addHints(expectedSet, unexpectedWidth = 1)
             ctx.pushAndContinue(num)
     }
 
@@ -140,7 +142,7 @@ private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], ine
                     assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
                     go(ctx, n, ns, acc * BigInt(radix).pow(n-m) + num)
                 case EscapeSomeNumber.NoDigits =>
-                    ctx.addHints(expected.toSet, unexpectedWidth = 1)
+                    ctx.addHints(expectedSet, unexpectedWidth = 1)
                     rollback(ctx, origOff, origLine, origCol)
                     acc
                 case EscapeSomeNumber.NoMoreDigits(remaining, _) =>

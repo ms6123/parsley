@@ -11,13 +11,24 @@ import parsley.debug.Profiler
 import parsley.errors.ErrorBuilder
 
 import parsley.internal.errors.{ExpectItem, FancyError, ParseError, TrivialError}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
-
 import Indenter.indentAndUnlines
 import InputSlicer.Pad
 import PrettyPortal.{Direction, Enter, Exit}
+
 import org.typelevel.scalaccompat.annotation.unused
+
+private [machine] trait DebugInstr {
+    this: Instr =>
+    
+    def apply(ctx: InterpreterContext): Unit
+
+    final override def apply(ctx: Context): Unit = {
+        require(ctx.isInstanceOf[InterpreterContext], s"DebugInstrs should only be applied to InterpreterContexts, got $ctx")
+        apply(ctx.asInstanceOf[InterpreterContext])
+    }
+}
 
 private [instructions] trait Colours {
     val ascii: Boolean
@@ -55,8 +66,8 @@ private [instructions] object PrettyPortal {
 
 private [instructions] object Indenter {
     final val IndentWidth: Int = 2
-    private def indent(ctx: Context) = " " * (ctx.debuglvl * 2)
-    def indentAndUnlines(ctx: Context, lines: String*): String = {
+    private def indent(ctx: InterpreterContext) = " " * (ctx.debuglvl * 2)
+    def indentAndUnlines(ctx: InterpreterContext, lines: String*): String = {
         lines.map(line => s"${indent(ctx)}$line").mkString("\n")
     }
 }
@@ -80,7 +91,7 @@ private [instructions] object InputSlicer {
 }
 
 private [instructions] trait Logger extends PrettyPortal with InputSlicer with Colours {
-    final protected def preludeString(dir: Direction, ctx: Context, ends: String, watchedRegs: Seq[(Int, String)]) = {
+    final protected def preludeString(dir: Direction, ctx: InterpreterContext, ends: String, watchedRegs: Seq[(Int, String)]) = {
         val input = this.slice(ctx)
         val prelude = s"${portal(dir, ctx)} (${ctx.line}, ${ctx.col}): "
         val caret = (" " * prelude.length) + this.caret(ctx)
@@ -91,7 +102,7 @@ private [instructions] trait Logger extends PrettyPortal with InputSlicer with C
         }
         indentAndUnlines(ctx, (s"$prelude$input$ends" +: caret +: regSummary)*)
     }
-    final protected def doBreak(ctx: Context): Unit = {
+    final protected def doBreak(ctx: InterpreterContext): Unit = {
         print(indentAndUnlines(ctx,
                 s"{stack: ${ctx.stack.mkString(", ")}}",
                 s"{registers: ${ctx.regs.zipWithIndex.map{case (x, i) => s"r$i: $x"}.mkString("[", ", ", "])}")}}",
@@ -101,8 +112,8 @@ private [instructions] trait Logger extends PrettyPortal with InputSlicer with C
 }
 
 private [internal] final class LogBegin(var label: Int, override val name: String, override val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)])
-    extends InstrWithLabel with Logger {
-    override def apply(ctx: Context): Unit = {
+    extends InstrWithLabel with DebugInstr with Logger {
+    override def apply(ctx: InterpreterContext): Unit = {
         ensureRegularInstruction(ctx)
         println(preludeString(Enter, ctx, "", watchedRegs))
         if (break) doBreak(ctx)
@@ -119,8 +130,8 @@ private [internal] final class LogBegin(var label: Int, override val name: Strin
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 }
 
-private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with Logger {
-    override def apply(ctx: Context): Unit = {
+private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with DebugInstr with Logger {
+    override def apply(ctx: InterpreterContext): Unit = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.popHandler()
@@ -145,7 +156,7 @@ private [internal] final class LogEnd(val name: String, val ascii: Boolean, brea
 }
 
 private [instructions] trait ErrLogger extends PrettyPortal with Colours {
-    final protected def preludeString(dir: Direction, ctx: Context, ends: String) = {
+    final protected def preludeString(dir: Direction, ctx: InterpreterContext, ends: String) = {
         val prelude = s"${portal(dir, ctx)} (offset ${ctx.offset}, line ${ctx.line}, col ${ctx.col})"
         indentAndUnlines(ctx, s"$prelude$ends")
     }
@@ -170,8 +181,8 @@ private [instructions] final case class ErrLogData(hintsOffset: Int, hints: Set[
 }
 
 private [internal] final class LogErrBegin(var label: Int, override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
-    extends InstrWithLabel with ErrLogger {
-    override def apply(ctx: Context): Unit = {
+    extends InstrWithLabel with DebugInstr with ErrLogger {
+    override def apply(ctx: InterpreterContext): Unit = {
         ensureRegularInstruction(ctx)
         val inFlightHints = ctx.inFlightHints.toSet
         // This should print out a classic opening line, followed by the currently in-flight hints
@@ -191,8 +202,8 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
 }
 
 private [internal] final class LogErrEnd(override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
-    extends Instr with ErrLogger {
-    override def apply(ctx: Context): Unit = {
+    extends Instr with DebugInstr with ErrLogger {
+    override def apply(ctx: InterpreterContext): Unit = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.popHandler()
