@@ -120,6 +120,8 @@ private [internal] final case class Call(var label: Int) extends InstrWithLabel 
     override def toString: String = s"Call($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = Call(label)
+
     override def labels: Seq[Int] = Seq.empty
 }
 
@@ -162,6 +164,8 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
     override def toString: String = s"PushHandler($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = PushHandler(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -193,6 +197,8 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
     override def toString: String = s"PushHandlerAndClearHints($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = PushHandlerAndClearHints(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -210,6 +216,8 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
     override def toString: String = s"PushHandlerAndStateAndClearHints($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = PushHandlerAndStateAndClearHints(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -225,6 +233,8 @@ private [internal] final class PushHandlerAndState(var label: Int) extends Instr
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndState($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = PushHandlerAndState(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
@@ -256,6 +266,8 @@ private [internal] final class Jump(var label: Int) extends InstrWithLabel {
     override def toString: String = s"Jump($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = Jump(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -274,6 +286,8 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
     override def toString: String = s"JumpAndPopCheck($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = JumpAndPopCheck(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -291,6 +305,8 @@ private [internal] final class JumpAndPopState(var label: Int) extends InstrWith
     // $COVERAGE-OFF$
     override def toString: String = s"JumpAndPopState($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = JumpAndPopState(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
@@ -312,6 +328,8 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
     override def toString: String = s"Catch($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = Catch(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers.tail)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
@@ -329,6 +347,8 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
     // $COVERAGE-OFF$
     override def toString: String = s"RestoreAndPushHandler($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = RestoreAndPushHandler(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers.tail)
 

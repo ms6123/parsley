@@ -29,6 +29,8 @@ private [internal] final class Many(var label: Int) extends InstrWithLabel {
     override def toString: String = s"Many($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = Many(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
@@ -53,6 +55,8 @@ private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"SkipMany($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = SkipMany(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 
@@ -79,6 +83,8 @@ private [internal] final class ChainPost(var label: Int) extends InstrWithLabel 
     // $COVERAGE-OFF$
     override def toString: String = s"ChainPost($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = ChainPost(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 
@@ -113,6 +119,8 @@ private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
     override def toString: String = s"ChainPre($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = ChainPre(label)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
@@ -139,6 +147,8 @@ private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Chainl($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = Chainl(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
 
@@ -169,6 +179,8 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
     // $COVERAGE-OFF$
     override def toString: String = s"ChainrJump($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = ChainrJump(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
@@ -216,6 +228,8 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
     // $COVERAGE-OFF$
     override def toString: String = s"SepEndBy1Jump($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = SepEndBy1Jump(label)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
 
@@ -291,6 +305,8 @@ private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel 
     override def toString: String = s"ManyUntil($label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = ManyUntil(label)
+
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
@@ -310,6 +326,8 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
     // $COVERAGE-OFF$
     override def toString: String = s"SkipManyUntil($label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = SkipManyUntil(label)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 

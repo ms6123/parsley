@@ -1,17 +1,14 @@
 package parsley.internal.machine.jit
 
-import java.lang.invoke.{MethodHandles, MethodType}
+import java.lang.invoke.{MethodHandle, MethodHandles, MethodType}
 import java.lang.reflect.Method
 
 import scala.collection.mutable
 
-import parsley.errors.ErrorBuilder
-
-import parsley.internal.machine.{Context, ParseRunner}
+import parsley.internal.machine.Context
 import parsley.internal.machine.instructions.*
 
 import org.objectweb.asm.{Label, Opcodes, Type}
-import parsley.Result
 
 private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
@@ -35,19 +32,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
     private val functionsById = functions.view.map(it => it.id -> it).toMap
     private val canFailCache = mutable.Map.empty[Int, Boolean]
 
-    def generate(): ParseRunner = {
+    def generate(): MethodHandle = {
         val classes = functions.map(generate)
-        val startMethod = MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[JitContext]))
-        new ParseRunner {
-            override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
-                JitContext(startMethod, input, numRegs, sourceFile).run()
-
-            override def dynCall(ctx: Context): Unit =
-                ctx match {
-                    case ctx: JitContext =>
-                        startMethod.invokeExact(ctx)
-                }
-        }
+        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[JitContext]))
     }
 
     private def generate(function: ParserFunction): Class[?] =

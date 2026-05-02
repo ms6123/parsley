@@ -34,6 +34,8 @@ private [internal] abstract class InstrWithLabel extends Instr {
         this
     }
 
+    override def copy: Instr
+
     override def labels: Seq[Int] = Seq(label)
 }
 

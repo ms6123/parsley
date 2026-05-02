@@ -225,6 +225,8 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         this
     }
 
+    override def copy: Instr = Shunt(prefixAtomLabel, postfixInfixLabel, wraps)
+
     override def labels: Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)

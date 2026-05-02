@@ -2,8 +2,12 @@ package parsley.internal.machine.jit
 
 import scala.collection.mutable
 
+import parsley.errors.ErrorBuilder
+
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
+
+import parsley.Result
 
 private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "true").toBoolean
 private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
@@ -11,13 +15,15 @@ private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
 object Optimizer {
     val useTco: Boolean = !IS_ENABLED
 
-    def optimize(instrs: Array[Instr]): ParseRunner = {
+    def optimize(originalInstrs: Array[Instr]): ParseRunner = {
         if (!IS_ENABLED) {
-            System.err.println(s"Interpreting ${instrs.length} instructions")
-            return Context.interpreterRunner(instrs)
+            System.err.println(s"Interpreting ${originalInstrs.length} instructions")
+            return Context.interpreterRunner(originalInstrs)
         }
 
-        System.err.println(s"JITing ${instrs.length} instructions")
+        System.err.println(s"JITing ${originalInstrs.length} instructions")
+
+        val instrs = originalInstrs.map(_.copy)
 
         def isFunctionTerminator(instr: Instr): Boolean = instr match {
             case Halt | Return => true
@@ -63,7 +69,18 @@ object Optimizer {
             ParserFunction(funcRange.start, funcInstrs.toArray, determineSuccessors(funcInstrs))
         }
 
-        ParserGenerator(functions.toArray).generate()
+        val startMethod = ParserGenerator(functions.toArray).generate()
+
+        new ParseRunner {
+            override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
+                JitContext(startMethod, input, numRegs, sourceFile).run()
+
+            override def dynCall(ctx: Context): Unit =
+                ctx match {
+                    case ctx: JitContext =>
+                        startMethod.invokeExact(ctx)
+                }
+        }
     }
 
     private def tailrecOptimization(funcRange: Range, instrs: mutable.ArrayBuffer[Instr]): Unit = {

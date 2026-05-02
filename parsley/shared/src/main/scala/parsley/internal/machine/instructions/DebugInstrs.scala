@@ -112,6 +112,8 @@ private [internal] final class LogBegin(var label: Int, override val name: Strin
     }
     override def toString: String = s"LogBegin($label, $name)"
 
+    override def copy: Instr = LogBegin(label, name, ascii, break, watchedRegs)
+
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
@@ -180,6 +182,8 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
         ctx.inc()
     }
     override def toString: String = s"LogErrBegin($label, $name)"
+
+    override def copy: Instr = LogErrBegin(label, name, ascii)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 
@@ -263,6 +267,8 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
     }
 
     override def toString: String = s"ProfileEnter($label, $name)"
+
+    override def copy: Instr = ProfileEnter(label, name, profiler)
 
     override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
 

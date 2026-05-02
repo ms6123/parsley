@@ -173,6 +173,8 @@ private [internal] final class If(var label: Int) extends InstrWithLabel {
     override def toString: String = s"If(true: $label)"
     // $COVERAGE-ON$
 
+    override def copy: Instr = If(label)
+
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 
     override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
@@ -191,6 +193,8 @@ private [internal] final class Case(var label: Int) extends InstrWithLabel {
     // $COVERAGE-OFF$
     override def toString: String = s"Case(left: $label)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = Case(label)
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None
 
@@ -318,6 +322,8 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
     // $COVERAGE-OFF$
     override def toString: String = s"Filter(???, good = $good)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = Filter(pred, good, bad)
 }
 
 private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: Int, var bad: Int) extends FilterLike {
@@ -338,6 +344,8 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
     // $COVERAGE-OFF$
     override def toString: String = s"MapFilter(???, good = $good)"
     // $COVERAGE-ON$
+
+    override def copy: Instr = MapFilter(pred, good, bad)
 }
 
 private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr {
