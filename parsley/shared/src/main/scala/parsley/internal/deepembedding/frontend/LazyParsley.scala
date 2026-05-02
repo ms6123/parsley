@@ -29,8 +29,6 @@ import parsley.internal.machine.{instructions, ParseRunner}
 private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     // Public API
     // $COVERAGE-OFF$
-    /** Force the parser, which eagerly computes its instructions immediately */
-    private [parsley] final def force(): Unit = runner: @nowarn
     /** Denote that this parser is large enough that it might stack-overflow during
       * compilation: this allows for the slow path using `Cont` to be used immediately
       * instead of going through the (likely failing) `Id` path.
@@ -38,8 +36,9 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     private [parsley] final def overflows(): Unit = cps = true
     // $COVERAGE-ON$
 
-    // The instructions used to execute this parser along with the number of registers it uses
-    final private [parsley] lazy val (runner: ParseRunner, numRefs: Int) = computeRunner
+    private [this] val pipelineCache = mutable.Map.empty[Boolean, (ParseRunner, Int)]
+    
+    final private [parsley] def force(useJit: Boolean): (ParseRunner, Int) = pipelineCache.getOrElseUpdate(useJit, computeRunner(useJit))
 
     /** This parser is the result of a `flatMap` operation, and as such may need to expand
       * the refs set. If so, it needs to know what the minimum free slot is according to
@@ -90,15 +89,15 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires in a (possibly) stack-safe way.
       */
-    final private def computeRunner: (ParseRunner, Int) = {
-        if (cps) computeRunner(Cont.ops) else computeRunner(Id.ops)
+    final private def computeRunner(useJit: Boolean): (ParseRunner, Int) = {
+        if (cps) computeRunner(Cont.ops, useJit) else computeRunner(Id.ops, useJit)
     }
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires within the context of a specific (unknown) monad.
       *
       * @param ops the instance for the monad to evaluate with
       */
-    final private def computeRunner[M[_, +_]](ops: ContOps[M]): (ParseRunner, Int) = pipeline(ops)
+    final private def computeRunner[M[_, +_]](ops: ContOps[M], useJit: Boolean): (ParseRunner, Int) = pipeline(useJit)(ops)
 
     /** Performs the full end-to-end pipeline through both the frontend and the backend.
       *
@@ -110,7 +109,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
       * @return the instructions associates with this parser as well as the number of
       *         registers it requires
       */
-    final private def pipeline[M[_, +_]: ContOps]: (ParseRunner, Int) = {
+    final private def pipeline[M[_, +_]: ContOps](useJit: Boolean): (ParseRunner, Int) = {
         implicit val letFinderState: LetFinderState = new LetFinderState
         (perform[M, ParseRunner] {
             findLets(Set.empty) >> {
@@ -118,7 +117,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
                 implicit val letMap: LetMap = LetMap(letFinderState.lets, letFinderState.recs)
                 for { sp <- this.optimised } yield {
                     implicit val state: backend.CodeGenState = new backend.CodeGenState(letFinderState.numRefs)
-                    sp.generateInstructions(minRef, usedRefs, letMap.bodies)
+                    sp.generateInstructions(minRef, usedRefs, letMap.bodies, useJit)
                 }
             }
         }, letFinderState.numRefs)

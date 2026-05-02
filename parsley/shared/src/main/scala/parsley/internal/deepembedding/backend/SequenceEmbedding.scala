@@ -93,11 +93,11 @@ private [deepembedding] final class >>=[A, B](val p: StrictParsley[A], private [
     }
     override def codeGen[M[_, +_]: ContOps, R](producesResults: Boolean)(implicit instrs: InstrBuffer, state: CodeGenState): M[R, Unit] = {
         suspend(p.codeGen[M, R](producesResults = true)) |> {
-            instrs += instructions.DynCall[A] { (x, refsSz) =>
+            instrs += instructions.DynCall[A] { (x, refsSz, useJit) =>
                 val q = f(x)
                 q.setMinReferenceAllocation(refsSz)
                 if (implicitly[ContOps[M]].isStackSafe) q.overflows()
-                q.runner
+                q.force(useJit)._1
             }
             // NOTE: this cannot be removed, because `q`'s instructions are cached: there is no way to tell it
             // to not produce results that doesn't stop it working later. Something like `p.flatten ~> p.flatten` will crash.

@@ -48,7 +48,8 @@ trait PlatformSpecific {
             } yield {
                 src.close()
                 val internal = p.internal
-                internal.runner.run(input, internal.numRefs, Some(file.getName))
+                val (runner, numRefs) = internal.force(true)
+                runner.run(input, numRefs, Some(file.getName))
             }
         }
     }

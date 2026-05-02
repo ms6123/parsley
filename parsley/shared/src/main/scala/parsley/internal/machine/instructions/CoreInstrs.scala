@@ -7,7 +7,7 @@ package parsley.internal.machine.instructions
 
 import parsley.XAssert.*
 
-import parsley.internal.machine.{Context, ParseRunner}
+import parsley.internal.machine.{Context, InterpreterContext, ParseRunner}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, EmptyHints}
 
@@ -82,10 +82,10 @@ private [internal] object Apply extends Instr {
 }
 
 // Monadic
-private [internal] final class DynCall(f: (Any, Int) => ParseRunner) extends Instr {
+private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) extends Instr {
     override def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        val runner = f(ctx.stack.upop(), ctx.regs.size)
+        val runner = f(ctx.stack.upop(), ctx.regs.size, !ctx.isInstanceOf[InterpreterContext])
         runner.dynCall(ctx)
     }
     // $COVERAGE-OFF$
@@ -93,7 +93,7 @@ private [internal] final class DynCall(f: (Any, Int) => ParseRunner) extends Ins
     // $COVERAGE-ON$
 }
 private [internal] object DynCall {
-    def apply[A](f: (A, Int) => ParseRunner): DynCall = new DynCall(f.asInstanceOf[(Any, Int) => ParseRunner])
+    def apply[A](f: (A, Int, Boolean) => ParseRunner): DynCall = new DynCall(f.asInstanceOf[(Any, Int, Boolean) => ParseRunner])
 }
 
 // Control Flow
