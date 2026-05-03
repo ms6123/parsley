@@ -37,8 +37,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] var running: Boolean = true
     /** Stack of handlers, which track the call depth, program counter and stack size of error handlers */
     private [machine] def handlers: HandlerStack
-    /** Current offset into program instruction buffer */
-    private [machine] var pc: Int = 0
     /** Current line number */
     private [machine] var line: Int = 1
     /** Current column number */
@@ -68,11 +66,11 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def pretty: String
 
-    private [machine] def call(at: Int): Unit
+    private [machine] def call(at: Int): Int
 
-    private [machine] def ret(): Unit
+    private [machine] def ret(): Int
 
-    private [machine] def catchNoConsumed(check: Int)(handler: =>Unit): Unit = {
+    private [machine] def catchNoConsumed(check: Int)(handler: =>Int): Int = {
         assert(!good, "catching can only be performed in a handler")
         if (offset != check) {
             popHandler()
@@ -104,50 +102,44 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def markErrorAsLexical(): Unit
 
-    private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Unit = {
+    private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Int = {
         this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs*))
     }
-    private [machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Unit = {
+    private [machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Int = {
         this.fail(new UnexpectedError(offset, line, col, expected, unexpected))
     }
-    private [machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Unit = {
+    private [machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Int = {
         this.fail(new ExpectedError(offset, line, col, expected, unexpectedWidth))
     }
-    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Unit = {
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Int = {
         this.fail(new ExpectedErrorWithReason(offset, line, col, expected, reason, unexpectedWidth))
     }
-    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Unit = {
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Int = {
         if (reason.isEmpty) this.expectedFail(expected, unexpectedWidth)
         else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
     }
 
-    private [machine] def fail(error: =>DefuncError): Unit = {
+    private [machine] def fail(error: =>DefuncError): Int = {
         good = false
         this.pushError(error)
         this.fail()
     }
 
-    protected def failImpl(): Unit
+    protected def failImpl(): Int
 
-    private [machine] def fail(): Unit = {
+    private [machine] def fail(): Int = {
         assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
         failImpl()
     }
 
-    private [machine] def pushAndContinue(x: Any) = {
+    private [machine] def push(x: Any) = {
         stack.push(x)
-        inc()
     }
-    private [machine] def unsafePushAndContinue(x: Any) = {
+    private [machine] def unsafePush(x: Any) = {
         stack.upush(x)
-        inc()
     }
-    private [machine] def exchangeAndContinue(x: Any) = {
+    private [machine] def exchange(x: Any) = {
         stack.exchange(x)
-        inc()
-    }
-    private [machine] def inc(): Unit = {
-        pc += 1
     }
     private [machine] def peekChar: Char = input.charAt(offset)
     private [machine] def peekChar(lookAhead: Int): Char = input.charAt(offset + lookAhead)
@@ -233,11 +225,12 @@ private [parsley] object Context {
         override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
             InterpreterContext(instrs, input, numRegs, sourceFile).run()
 
-        override def dynCall(ctx: Context): Unit =
+        override def dynCall(ctx: Context, pc: Int): Int =
             ctx match {
                 case ctx: InterpreterContext =>
                     ctx.call(0)
                     ctx.instrs = instrs
+                    0
             }
     }
 }

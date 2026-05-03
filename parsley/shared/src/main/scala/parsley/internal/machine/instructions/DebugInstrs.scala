@@ -22,11 +22,11 @@ import org.typelevel.scalaccompat.annotation.unused
 private [machine] trait DebugInstr {
     this: Instr =>
     
-    def apply(ctx: InterpreterContext): Unit
+    def apply(ctx: InterpreterContext, pc: Int): Int
 
-    final override def apply(ctx: Context): Unit = {
+    final override def apply(ctx: Context, pc: Int): Int = {
         require(ctx.isInstanceOf[InterpreterContext], s"DebugInstrs should only be applied to InterpreterContexts, got $ctx")
-        apply(ctx.asInstanceOf[InterpreterContext])
+        apply(ctx.asInstanceOf[InterpreterContext], pc)
     }
 }
 
@@ -113,13 +113,13 @@ private [instructions] trait Logger extends PrettyPortal with InputSlicer with C
 
 private [internal] final class LogBegin(var label: Int, override val name: String, override val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)])
     extends InstrWithLabel with DebugInstr with Logger {
-    override def apply(ctx: InterpreterContext): Unit = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         println(preludeString(Enter, ctx, "", watchedRegs))
         if (break) doBreak(ctx)
         ctx.debuglvl += 1
         ctx.pushHandler(label)
-        ctx.inc()
+        pc + 1
     }
     override def toString: String = s"LogBegin($label, $name)"
 
@@ -131,22 +131,21 @@ private [internal] final class LogBegin(var label: Int, override val name: Strin
 }
 
 private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with DebugInstr with Logger {
-    override def apply(ctx: InterpreterContext): Unit = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.popHandler()
-        val end = " " + {
+        val (newPc, end) = {
             if (ctx.good) {
-                ctx.inc()
-                green("Good")
+                (pc + 1, " " + green("Good"))
             }
             else {
-                ctx.fail()
-                red("Fail")
+                (ctx.fail(), " " + red("Fail"))
             }
         }
         println(preludeString(Exit, ctx, end, watchedRegs))
         if (break) doBreak(ctx)
+        newPc
     }
     override def toString: String = s"LogEnd($name)"
 
@@ -182,7 +181,7 @@ private [instructions] final case class ErrLogData(hintsOffset: Int, hints: Set[
 
 private [internal] final class LogErrBegin(var label: Int, override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
     extends InstrWithLabel with DebugInstr with ErrLogger {
-    override def apply(ctx: InterpreterContext): Unit = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val inFlightHints = ctx.inFlightHints.toSet
         // This should print out a classic opening line, followed by the currently in-flight hints
@@ -190,7 +189,7 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
         ctx.debuglvl += 1
         ctx.stack.push(ErrLogData(ctx.currentHintsValidOffset, inFlightHints))
         ctx.pushHandler(label)
-        ctx.inc()
+        pc + 1
     }
     override def toString: String = s"LogErrBegin($label, $name)"
 
@@ -203,7 +202,7 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
 
 private [internal] final class LogErrEnd(override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
     extends Instr with DebugInstr with ErrLogger {
-    override def apply(ctx: InterpreterContext): Unit = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         assert(ctx.running, "cannot wrap a Halt with a debug")
         ctx.debuglvl -= 1
         ctx.popHandler()
@@ -228,7 +227,7 @@ private [internal] final class LogErrEnd(override val name: String, override val
                     println(preludeString(Exit, ctx, msg))
                 }
             }
-            ctx.inc()
+            pc + 1
         }
         else {
             // In this case, the current top of stack error message is reported
@@ -270,11 +269,11 @@ private [instructions] object LogErrEnd {
 
 private [internal] final class ProfileEnter(var label: Int, name: String, profiler: Profiler) extends InstrWithLabel {
     private [this] val entries = profiler.entriesFor(name)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
-        ctx.inc()
         entries += profiler.monotone(System.nanoTime())
+        pc + 1
     }
 
     override def toString: String = s"ProfileEnter($label, $name)"
@@ -288,10 +287,10 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
 
 private [internal] final class ProfileExit(name: String, profiler: Profiler) extends Instr {
     private [this] val exits = profiler.exitsFor(name)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         exits += profiler.monotone(System.nanoTime())
         ctx.popHandler()
-        if (ctx.good) ctx.inc()
+        if (ctx.good) pc + 1
         else ctx.fail()
     }
 

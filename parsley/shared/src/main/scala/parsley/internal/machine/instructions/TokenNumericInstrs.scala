@@ -25,16 +25,18 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         if (plusPresence ne PlusSignPresence.Illegal) Set(new ExpectRaw("+"), new ExpectRaw("-"))
         else                                          Set(new ExpectRaw("-"))
 
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // This could be simplified, but the "fail" branches need to be duplicated...
         if (ctx.moreInput && ctx.peekChar == '-') {
             ctx.fastUncheckedConsumeChars(1)
-            ctx.pushAndContinue(neg)
+            ctx.push(neg)
+            pc + 1
         }
         else if ((plusPresence ne PlusSignPresence.Illegal) && ctx.moreInput && ctx.peekChar == '+') {
             ctx.fastUncheckedConsumeChars(1)
-            ctx.pushAndContinue(pos)
+            ctx.push(pos)
+            pc + 1
         }
         else if (plusPresence eq PlusSignPresence.Required) {
             ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
@@ -42,7 +44,8 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         else {
             ctx.pushError(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
             ctx.addErrorToHintsAndPop()
-            ctx.pushAndContinue(pos)
+            ctx.push(pos)
+            pc + 1
         }
     }
 

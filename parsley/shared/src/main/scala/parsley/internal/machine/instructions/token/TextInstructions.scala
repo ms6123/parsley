@@ -20,33 +20,35 @@ import parsley.internal.machine.instructions.Instr
 private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr {
     def this(escTrie: Trie[Int], escs: Set[String]) = this(escTrie, escs.view.map(_.length).max, escs.map(new ExpectRaw(_)))
     // Do not consume input on failure, it's possible another escape sequence might share a lead
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        findFirst(ctx, 0, escTrie)
+        findFirst(ctx, pc, 0, escTrie)
     }
 
-    @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Unit = {
+    @tailrec private def findLongest(ctx: Context, pc: Int, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Int = {
         val (nextLongestChar, nextLongestSz) = escs.get("") match {
             case Some(x) => (x, off)
             case None => (longestChar, longestSz)
         }
         lazy val escsNew = escs.suffixes(ctx.peekChar(off))
-        if (ctx.moreInput(off + 1) && escsNew.nonEmpty) findLongest(ctx, off + 1, escsNew, nextLongestChar, nextLongestSz)
+        if (ctx.moreInput(off + 1) && escsNew.nonEmpty) findLongest(ctx, pc, off + 1, escsNew, nextLongestChar, nextLongestSz)
         else {
             ctx.fastUncheckedConsumeChars(nextLongestSz)
-            ctx.pushAndContinue(nextLongestChar)
+            ctx.push(nextLongestChar)
+            pc + 1
         }
     }
 
-    @tailrec private def findFirst(ctx: Context, off: Int, escs: Trie[Int]): Unit = {
+    @tailrec private def findFirst(ctx: Context, pc: Int, off: Int, escs: Trie[Int]): Int = {
         lazy val escsNew = escs.suffixes(ctx.peekChar(off))
         val couldTryMore = ctx.moreInput(off + 1) && escsNew.nonEmpty
         escs.get("") match {
-            case Some(x) if couldTryMore => findLongest(ctx, off + 1, escsNew, x, off)
+            case Some(x) if couldTryMore => findLongest(ctx, pc, off + 1, escsNew, x, off)
             case Some(x) =>
                 ctx.fastUncheckedConsumeChars(off)
-                ctx.pushAndContinue(x)
-            case None if couldTryMore => findFirst(ctx, off + 1, escsNew)
+                ctx.push(x)
+                pc + 1
+            case None if couldTryMore => findFirst(ctx, pc, off + 1, escsNew)
             case None => ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, caretWidth))
         }
     }
@@ -92,14 +94,16 @@ private [token] object EscapeSomeNumber {
 }
 
 private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSomeNumber(radix) {
-    override def apply(ctx: Context): Unit = someNumber(ctx, n) match {
+    override def apply(ctx: Context, pc: Int): Int = someNumber(ctx, n) match {
         case EscapeSomeNumber.Good(num) =>
             assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
-            ctx.pushAndContinue(num)
+            ctx.push(num)
+            pc + 1
         case EscapeSomeNumber.NoDigits => ctx.expectedFail(expected, unexpectedWidth = 1)
         case EscapeSomeNumber.NoMoreDigits(_, num) =>
             ctx.addHints(expectedSet, unexpectedWidth = 1)
-            ctx.pushAndContinue(num)
+            ctx.push(num)
+            pc + 1
     }
 
     // $COVERAGE-OFF$
@@ -109,14 +113,15 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
 
 private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], inexactErr: SpecializedFilterConfig[Int]) extends EscapeSomeNumber(radix) {
     private val (m :: ms) = ns: @unchecked
-    def apply(ctx: Context): Unit = {
+    def apply(ctx: Context, pc: Int): Int = {
         val origOff = ctx.offset
         val origLine = ctx.line
         val origCol = ctx.col
         someNumber(ctx, m) match {
             case EscapeSomeNumber.Good(num) =>
                 assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
-                ctx.pushAndContinue(go(ctx, m, ms, num))
+                ctx.push(go(ctx, m, ms, num))
+                pc + 1
             case EscapeSomeNumber.NoDigits => ctx.expectedFail(expected, unexpectedWidth = 1)
             case EscapeSomeNumber.NoMoreDigits(remaining, _) =>
                 assume(remaining != 0, "cannot be left with 0 remaining digits and failed")

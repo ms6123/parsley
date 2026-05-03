@@ -13,9 +13,12 @@ import parsley.internal.machine.XAssert.*
 
 private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr {
     def this(f: Char => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        if (ctx.moreInput && f(ctx.peekChar)) ctx.pushAndContinue(ctx.consumeChar())
+        if (ctx.moreInput && f(ctx.peekChar)) {
+            ctx.push(ctx.consumeChar())
+            pc + 1
+        }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
     // $COVERAGE-OFF$
@@ -24,7 +27,7 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
 }
 
 private [internal] object RestoreAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         // Pop input off head then fail to next handler
@@ -37,12 +40,12 @@ private [internal] object RestoreAndFail extends Instr with RefailInstr {
 }
 
 private [internal] object RestoreHintsAndState extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.restoreHints()
         ctx.restoreState()
         ctx.popHandler()
-        ctx.inc()
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "RestoreHintsAndState"
@@ -54,7 +57,7 @@ private [internal] object RestoreHintsAndState extends Instr {
 }
 
 private [internal] object PopStateAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.states = ctx.states.tail
@@ -66,7 +69,7 @@ private [internal] object PopStateAndFail extends Instr with RefailInstr {
 }
 
 private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         ctx.popHandler()
@@ -80,9 +83,10 @@ private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailI
 
 // Position Extractors
 private [internal] object Line extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.pushAndContinue(ctx.line)
+        ctx.push(ctx.line)
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "Line"
@@ -92,9 +96,10 @@ private [internal] object Line extends Instr {
 }
 
 private [internal] object Col extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.pushAndContinue(ctx.col)
+        ctx.push(ctx.col)
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "Col"
@@ -104,9 +109,10 @@ private [internal] object Col extends Instr {
 }
 
 private [internal] object Offset extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.pushAndContinue(ctx.offset)
+        ctx.push(ctx.offset)
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "Offset"
@@ -117,9 +123,10 @@ private [internal] object Offset extends Instr {
 
 // Register-Manipulators
 private [internal] final class Get(reg: Int) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.pushAndContinue(ctx.regs(reg))
+        ctx.push(ctx.regs(reg))
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Get(r$reg)"
@@ -129,10 +136,10 @@ private [internal] final class Get(reg: Int) extends Instr {
 }
 
 private [internal] final class Put(reg: Int) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, ctx.stack.upop())
-        ctx.inc()
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Put(r$reg)"
@@ -142,7 +149,7 @@ private [internal] final class Put(reg: Int) extends Instr {
 }
 
 private [internal] final class PutAndFail(reg: Int) extends Instr with RefailInstr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.writeReg(reg, ctx.stack.upeek)
@@ -154,13 +161,14 @@ private [internal] final class PutAndFail(reg: Int) extends Instr with RefailIns
 }
 
 private [internal] object Span extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         // this uses the state stack because post #132 we will need a save point to obtain the start of the input
         ensureRegularInstruction(ctx)
         val startOffset = ctx.states.offset
         ctx.states = ctx.states.tail
         ctx.popHandler()
-        ctx.pushAndContinue(ctx.input.substring(startOffset, ctx.offset))
+        ctx.push(ctx.input.substring(startOffset, ctx.offset))
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "Span"
@@ -172,11 +180,11 @@ private [internal] object Span extends Instr {
 }
 
 private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         if (newSz > ctx.regs.size) {
             ctx.regs = java.util.Arrays.copyOf(ctx.regs, newSz)
         }
-        ctx.inc()
+        pc + 1
     }
 
     override def failPath(handlers: List[Int]): Option[List[Int]] = None

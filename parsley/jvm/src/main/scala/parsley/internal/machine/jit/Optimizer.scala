@@ -82,10 +82,12 @@ object Optimizer {
                             .run(input, numRegs, sourceFile)
                 }
 
-            override def dynCall(ctx: Context): Unit =
+            override def dynCall(ctx: Context, pc: Int): Int =
                 ctx match {
                     case ctx: JitContext =>
-                        startMethod.invokeExact(ctx)
+                        //noinspection ScalaUnusedExpression
+                        startMethod.invokeExact(ctx): Boolean
+                        if (ctx.good) pc + 1 else -1
                 }
         }
     }

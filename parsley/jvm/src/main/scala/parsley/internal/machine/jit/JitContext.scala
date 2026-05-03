@@ -21,7 +21,7 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
 
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         //noinspection ScalaUnusedExpression
-        startMethod.invokeExact(this): Unit
+        startMethod.invokeExact(this): Boolean
         if (good) {
             assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
@@ -35,16 +35,17 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
         }
     }
 
-    override private[machine] def call(at: Int): Unit = ???
+    override private[machine] def call(at: Int): Int = ???
 
-    override private[machine] def ret(): Unit = ???
+    override private[machine] def ret(): Int = ???
 
-    override protected def failImpl(): Unit = {
+    override protected def failImpl(): Int = {
         if (!handlers.isEmpty) {
             val handler = handlers
             val diffstack = stack.usize - handler.stacksz
             if (diffstack > 0) stack.drop(diffstack)
         }
+        -1
     }
 
     override private[machine] def pushHandler(label: Int): Unit = {
@@ -64,7 +65,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
            |  input     = ${input.drop(offset)}
            |  pos       = ($line, $col)
            |  status    = $status
-           |  pc        = $pc
            |  handlers  = ${handlers.mkString(", ")}
            |  recstates = ${states.mkString(", ")}
            |  registers = ${regs.zipWithIndex.map { case (r, i) => s"r$i = $r" }.toList.mkString("\n              ")}

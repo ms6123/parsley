@@ -18,9 +18,10 @@ import parsley.internal.machine.errors.{EmptyHints, ExpectedError}
 import parsley.internal.machine.stacks.ErrorStack
 
 private [internal] final class Lift1(f: Any => Any) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.exchangeAndContinue(f(ctx.stack.upeek))
+        ctx.exchange(f(ctx.stack.upeek))
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = "Perform(?)"
@@ -33,9 +34,10 @@ private [internal] object Lift1 {
 }
 
 private [internal] final class Exchange[A](private [Exchange] val x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.exchangeAndContinue(x)
+        ctx.exchange(x)
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = s"Ex($x)"
@@ -46,11 +48,12 @@ private [internal] final class Exchange[A](private [Exchange] val x: A) extends 
 
 private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr {
     private [this] final val expected = _expected.asExpectDescs
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
-            ctx.pushAndContinue(x)
+            ctx.push(x)
+            pc + 1
         }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
@@ -60,13 +63,14 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
 }
 
 private [internal] final class RecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.popHandler()
             ctx.addErrorToHintsAndPop()
-            ctx.pushAndContinue(x)
+            ctx.push(x)
+            pc + 1
         }
     }
     // $COVERAGE-OFF$
@@ -79,14 +83,15 @@ private [internal] final class RecoverWith[A](x: A) extends Instr {
 }
 
 private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.popHandler()
         ctx.addErrorToHintsAndPop()
         ctx.good = true
-        ctx.pushAndContinue(x)
+        ctx.push(x)
+        pc + 1
     }
     // $COVERAGE-OFF$
     override def toString: String = s"AlwaysRecoverWith($x)"
@@ -161,11 +166,10 @@ private [internal] final class JumpTable
     private [this] var defaultPreamble: Int = _
     private [this] var jumpTableFuncs: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = _
 
-    override def apply(ctx: Context): Unit = {
+    override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput) {
             val (dest, errorItems) = getRoot(ctx.peekChar, jumpTableFuncs)
-            ctx.pc = dest
             if (dest != default) {
                 ctx.pushHandler(defaultPreamble)
                 ctx.pushHandler(individualMergeHandler)
@@ -174,11 +178,12 @@ private [internal] final class JumpTable
                 ctx.pushHandler(defaultMergeHandler)
             }
             addErrors(ctx, errorItems)
+            dest
         }
         else {
             addErrors(ctx, allErrorItems)
             ctx.pushHandler(defaultMergeHandler)
-            ctx.pc = default
+            default
         }
     }
 

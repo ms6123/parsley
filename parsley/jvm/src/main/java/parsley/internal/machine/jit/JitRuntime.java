@@ -1,7 +1,5 @@
 package parsley.internal.machine.jit;
 
-import parsley.internal.machine.Context;
-
 @SuppressWarnings("unused")
 public class JitRuntime {
     public static Object getObject(Class<?> ctx, String name, int index) {
@@ -9,8 +7,6 @@ public class JitRuntime {
     }
     
     public static void beforeInstruction(Object instr, int i, Object ctx) {
-        if (((Context) ctx).pc() != i) {
-            throw new IllegalStateException("pc mismatch");
-        }
+        System.err.println(instr);
     }
 }

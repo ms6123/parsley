@@ -24,13 +24,13 @@ private [token] abstract class Specific extends Instr {
     private [this] final val strsz = specific.length
     private [this] final val numCodePoints = specific.codePointCount(0, strsz)
 
-    protected def postprocess(ctx: Context): Unit
+    protected def postprocess(ctx: Context, pc: Int): Int
 
-    final override def apply(ctx: Context): Unit = {
+    final override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput(strsz)) {
             ctx.saveState()
-            readSpecific(ctx, 0)
+            readSpecific(ctx, pc, 0)
         }
         else ctx.expectedFailWithReason(expected, reason, numCodePoints)
     }
@@ -46,23 +46,23 @@ private [token] abstract class Specific extends Instr {
     }
 
     @tailrec
-    final private def readSpecific(ctx: Context, j: Int): Unit = {
+    final private def readSpecific(ctx: Context, pc: Int, j: Int): Int = {
         if (j < strsz) {
             val c = specific.codePointAt(j)
             if (Character.isSupplementaryCodePoint(c) && ctx.moreInput(2) && readCharCaseHandledSupplementary(ctx) == c) {
                 ctx.fastConsumeSupplementaryChar()
-                readSpecific(ctx, j + 2)
+                readSpecific(ctx, pc, j + 2)
             }
             else if (ctx.moreInput && readCharCaseHandledBMP(ctx) == c.toChar) {
                 ctx.consumeChar()
-                readSpecific(ctx, j + 1)
+                readSpecific(ctx, pc, j + 1)
             }
             else {
                 ctx.restoreState()
                 ctx.expectedFailWithReason(expected, reason, numCodePoints)
             }
         }
-        else postprocess(ctx)
+        else postprocess(ctx, pc)
     }
 }
 
@@ -76,14 +76,15 @@ private [internal] final class SoftKeyword(protected val specific: String, lette
              expected.asExpectItems(specific), expected.asReason, Some(new ExpectDesc(expectedEnd)))
     }
 
-    protected def postprocess(ctx: Context): Unit = {
+    protected def postprocess(ctx: Context, pc: Int): Int = {
         if (letter.peek(ctx)) {
-            ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
+            val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
             ctx.restoreState()
+            newPc
         }
         else {
             ctx.states = ctx.states.tail
-            ctx.inc()
+            pc + 1
         }
     }
 
@@ -110,20 +111,22 @@ private [internal] final class SoftOperator(protected val specific: String, lett
         else unexpectedWidth
     }
 
-    protected def postprocess(ctx: Context): Unit = {
+    protected def postprocess(ctx: Context, pc: Int): Int = {
         if (letter.peek(ctx)) {
-            ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
+            val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
             ctx.restoreState()
+            newPc
         }
         else {
             val unexpectedWidth = checkEnds(ctx, ends, off = 0, unexpectedWidth = 0)
             if (unexpectedWidth != 0) {
-                ctx.expectedFail(expectedEnd, unexpectedWidth)
+                val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth)
                 ctx.restoreState()
+                newPc
             }
             else {
                 ctx.states = ctx.states.tail
-                ctx.inc()
+                pc + 1
             }
         }
     }

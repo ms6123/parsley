@@ -13,17 +13,15 @@ import org.objectweb.asm.{Label, Opcodes, Type}
 private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
 private val IMPL_NAME = "parse"
-private val IMPL_DESC = Type.getMethodDescriptor(Type.VOID_TYPE, JIT_CONTEXT)
+private val IMPL_DESC = Type.getMethodDescriptor(Type.BOOLEAN_TYPE, JIT_CONTEXT)
 
 private object Methods {
     object Context {
-        val GET_PC: Method = classOf[JitContext].getMethod("pc")
-        val SET_PC: Method = classOf[JitContext].getMethod("pc_$eq", classOf[Int])
         val IS_GOOD: Method = classOf[JitContext].getMethod("good")
     }
 
     object Instr {
-        val APPLY: Method = classOf[Instr].getMethod("apply", classOf[Context])
+        val APPLY: Method = classOf[Instr].getMethod("apply", classOf[Context], classOf[Int])
     }
 }
 
@@ -34,62 +32,55 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
     def generate(): MethodHandle = {
         val classes = functions.map(generate)
-        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(Void.TYPE, classOf[JitContext]))
+        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(classOf[Boolean], classOf[JitContext]))
     }
 
     private def generate(function: ParserFunction): Class[?] =
         ctx.newClass(Opcodes.ACC_PUBLIC, className(function.id)) { classVisitor =>
             val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, IMPL_NAME, IMPL_DESC, null, null)
             val instrLabels = function.instrs.map(_ => Label())
-            val endLabel = Label()
+            val successLabel = Label()
+            val failureLabel = Label()
 
             def loadContext(): Unit = vis.visitVarInsn(Opcodes.ALOAD, 0)
 
-            def labelForPos(pos: Int) = if (pos == -1) endLabel else instrLabels(pos)
+            def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels(pos)
 
-            def jumpToSuccessors(pos: Int, successors: Set[Int]): Unit = {
+            def jumpToSuccessors(pos: Int, successors: Map[Int, Label]): Unit = {
                 successors.size match {
                     case 0 =>
-                        vis.visitJumpInsn(Opcodes.GOTO, endLabel)
+                        vis.visitInsn(Opcodes.POP)
+                        if (pos != function.instrs.indices.last) {
+                            vis.visitJumpInsn(Opcodes.GOTO, successLabel)
+                        }
                     case 1 if successors.contains(pos + 1) =>
+                        vis.visitInsn(Opcodes.POP)
                     case 1 =>
-                        vis.visitJumpInsn(Opcodes.GOTO, labelForPos(successors.head))
+                        vis.visitInsn(Opcodes.POP)
+                        vis.visitJumpInsn(Opcodes.GOTO, successors.head._2)
                     case _ =>
-                        loadContext()
-                        vis.callMethod(Methods.Context.GET_PC)
-
                         successors.size match {
                             case 2 if successors.contains(pos + 1) =>
                                 vis.loadInt(pos + 1)
-                                vis.visitJumpInsn(Opcodes.IF_ICMPNE, labelForPos(successors.find(_ != pos + 1).get))
+                                vis.visitJumpInsn(Opcodes.IF_ICMPNE, successors.find(_._1 != pos + 1).get._2)
                             case 2 =>
                                 val Seq(a, b) = successors.toSeq
-                                vis.loadInt(a)
-                                vis.visitJumpInsn(Opcodes.IF_ICMPEQ, labelForPos(a))
-                                vis.visitJumpInsn(Opcodes.GOTO, labelForPos(b))
+                                vis.loadInt(a._1)
+                                vis.visitJumpInsn(Opcodes.IF_ICMPEQ, a._2)
+                                vis.visitJumpInsn(Opcodes.GOTO, b._2)
                             case _ =>
                                 val keys = successors.toArray
-                                keys.sortInPlace()
+                                keys.sortInPlaceBy(_._1)
                                 val (first, rest) = (keys.head, keys.tail)
-                                vis.visitLookupSwitchInsn(labelForPos(first), rest, rest.map(labelForPos))
+                                vis.visitLookupSwitchInsn(first._2, rest.map(_._1), rest.map(_._2))
                         }
                 }
             }
-
-            loadContext()
-            vis.loadInt(0)
-            vis.callMethod(Methods.Context.SET_PC)
 
             for ((instr, pos) <- function.instrs.view.zipWithIndex if function.successorInfos(pos).isReachable) {
                 val successors = function.successorInfos(pos)
 
                 vis.visitLabel(instrLabels(pos))
-
-                if (successors.isHandler && successors.goodPaths.nonEmpty) {
-                    loadContext()
-                    vis.loadInt(pos)
-                    vis.callMethod(Methods.Context.SET_PC)
-                }
 
 //                vis.loadObject(instr)
 //                vis.loadInt(pos)
@@ -97,11 +88,14 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 //                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(Ljava/lang/Object;ILjava/lang/Object;)V", false)
 
                 instr match {
-                    case _: Call | Return | Halt =>
+                    case _: Call =>
+                    case Return | Halt =>
                         // No-ops
+                        vis.loadInt(-1)
                     case _ =>
                         vis.loadObject(instr)
                         loadContext()
+                        vis.loadInt(pos)
                         vis.callMethod(Methods.Instr.APPLY)
                 }
 
@@ -109,45 +103,27 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     case Call(id) =>
                         loadContext()
                         vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, IMPL_DESC, false)
-                    case _ =>
-                }
-
-                val mightFail = instr match {
-                    case Call(id) => canFail(id)
-                    case _ => successors.badPath.isDefined
-                }
-
-                var finalJumpNeeded = true
-
-                if (mightFail) {
-                    if (successors.goodPaths.nonEmpty && successors.goodPaths != Set(successors.badPath.get)) {
-                        loadContext()
-                        vis.callMethod(Methods.Context.IS_GOOD)
-                        vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(successors.badPath.get))
-                    } else {
-                        jumpToSuccessors(pos, Set(successors.badPath.get))
-                        finalJumpNeeded = false
-                    }
-                }
-
-                instr match {
-                    case _: (Call | DynCall) =>
-                        require(successors.goodPaths == Set(pos + 1))
-
-                        if (!willSetPc(function.instrs(pos + 1), function.successorInfos(pos + 1))) {
-                            loadContext()
-                            vis.loadInt(pos + 1)
-                            vis.callMethod(Methods.Context.SET_PC)
+                        if (canFail(id)) {
+                            vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(successors.badPath.get))
+                        } else {
+                            vis.visitInsn(Opcodes.POP)
                         }
                     case _ =>
-                        if (finalJumpNeeded) {
-                            jumpToSuccessors(pos, successors.goodPaths)
-                        }
+                        val successorLabels = Map.newBuilder[Int, Label]
+
+                        successorLabels ++= successors.goodPaths.map(it => it -> labelForPos(it))
+                        successorLabels ++= successors.badPath.map(-1 -> labelForPos(_))
+
+                        jumpToSuccessors(pos, successorLabels.result())
                 }
             }
 
-            vis.visitLabel(endLabel)
-            vis.visitInsn(Opcodes.RETURN)
+            vis.visitLabel(successLabel)
+            vis.visitInsn(Opcodes.ICONST_1)
+            vis.visitInsn(Opcodes.IRETURN)
+            vis.visitLabel(failureLabel)
+            vis.visitInsn(Opcodes.ICONST_0)
+            vis.visitInsn(Opcodes.IRETURN)
             vis.visitEnd()
         }
 
@@ -166,12 +142,6 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
             }
         }
     }
-
-    private def willSetPc(instr: Instr, successors: SuccessorInfo): Boolean =
-        instr match {
-            case _: (Call | DynCall) => true
-            case _ => successors.goodPaths.isEmpty
-        }
 
     private def className(id: Int) = s"parsley/internal/machine/jit/gen/parsers/Parser$id"
 }

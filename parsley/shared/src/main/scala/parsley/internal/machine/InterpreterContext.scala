@@ -16,6 +16,8 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
                                           numRegs: Int,
                                           sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
     private [machine] var handlers: InterpreterHandlerStack = Stack.empty
+    /** Current offset into program instruction buffer */
+    private[machine] var pc: Int = 0
 
     private [machine] var instrs: Array[Instr] = _
     /** Call stack consisting of Frames that track the return position and the old instructions */
@@ -133,7 +135,7 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         instrs = startInstrs
         while (running) {
-            instrs(pc)(this)
+            pc = instrs(pc)(this, pc)
         }
         if (good) {
             assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
@@ -151,29 +153,31 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         }
     }
 
-    override private[machine] def call(at: Int): Unit = {
+    override private [machine] def call(at: Int): Int = {
         calls = new CallStack(pc + 1, instrs, at, calls)
-        pc = at
+        at
     }
 
-    override private[machine] def ret(): Unit = {
+    override private [machine] def ret(): Int = {
         assert(calls != null, "cannot return when no calls are made")
         instrs = calls.instrs
-        pc = calls.ret
+        val newPc = calls.ret
         calls = calls.tail
+        newPc
     }
 
-    override def failImpl(): Unit = {
+    protected override def failImpl(): Int = {
         if (handlers.isEmpty) {
             running = false
+            pc
         }
         else {
             val handler = handlers
             instrs = handler.instrs
             calls = handler.calls
-            pc = handler.pc
             val diffstack = stack.usize - handler.stacksz
             if (diffstack > 0) stack.drop(diffstack)
+            handler.pc
         }
     }
 
