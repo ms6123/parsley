@@ -17,6 +17,7 @@ import parsley.internal.deepembedding.backend
 import backend.StrictParsley
 import parsley.internal.diagnostics.NullParserException
 import parsley.internal.machine.{instructions, ParseRunner}
+import parsley.internal.machine.jit.Optimizer
 
 /** This is the root type of the parsley "frontend": it represents a combinator tree
   * where the join-points in the tree (recursive or otherwise) have not been identified
@@ -241,7 +242,7 @@ private [deepembedding] class LetFinderState {
 
     /** Returns all the parsers which are referenced two or more times across the tree. */
     private [frontend] def lets: Iterable[LazyParsley[?]] = _preds.toSeq.view.collect {
-        case (p, refs) if refs >= 2 => p
+        case (p, refs) if refs >= 2 || !Optimizer.allowInlining => p
     }
     /** Returns all the recursive parsers in the tree */
     private [frontend] lazy val recs: Set[LazyParsley[?]] = _recs.toSet

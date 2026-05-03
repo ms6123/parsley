@@ -14,6 +14,7 @@ private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
 
 object Optimizer {
     val useTco: Boolean = !IS_ENABLED
+    val allowInlining: Boolean = !IS_ENABLED
 
     def optimize(originalInstrs: Array[Instr]): ParseRunner = {
         if (!IS_ENABLED) {
