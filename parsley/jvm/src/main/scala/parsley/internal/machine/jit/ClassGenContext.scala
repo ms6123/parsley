@@ -81,11 +81,11 @@ class ClassGenContext {
     class MethodGenVisitor(delegate: MethodVisitor, private val className: String)(private val registerObject: (AnyRef, Class[?]) => String) extends MethodVisitor(Opcodes.ASM9, delegate) {
         visitCode()
 
-        def loadObject[T <: AnyRef](obj: T)(using tag: ClassTag[T]): Unit = {
+        def loadObject(obj: AnyRef): Unit = {
             if (isScalaObject(obj)) {
                 visitFieldInsn(Opcodes.GETSTATIC, Type.getInternalName(obj.getClass), "MODULE$", Type.getDescriptor(obj.getClass))
             } else {
-                visitFieldInsn(Opcodes.GETSTATIC, className, registerObject(obj, tag.runtimeClass), Type.getDescriptor(tag.runtimeClass))
+                visitFieldInsn(Opcodes.GETSTATIC, className, registerObject(obj, obj.getClass), Type.getDescriptor(obj.getClass))
             }
         }
 

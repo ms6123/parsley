@@ -6,16 +6,17 @@
 package parsley.internal.machine.instructions
 
 import parsley.XAssert.*
-import parsley.internal.machine.Context
+
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.stacks.ArrayStack
 import scala.annotation.tailrec
 
 private [internal] sealed abstract class ShuntToken {
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int
 }
 
 private [internal] final class Atom(val v: Any, val lvl: Int) extends ShuntToken {
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         state.atoms.push(this)
         shunt.gotoPostInfix(ctx, state)
     }
@@ -47,7 +48,7 @@ private [internal] abstract class Operator extends ShuntToken {
 private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         if (state.operators.nonEmpty && prec.compare(state.operators.peek.prec) < 0) {
             // This is a malformed expression
             ctx.popHandler()
@@ -67,7 +68,7 @@ private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Op
 private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = true
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         if (state.operators.nonEmpty && state.operators.peek.isPostfix && prec.compare(state.operators.peek.prec) > 0) {
             // This was an unexpected postfix operator
             ctx.popHandler()
@@ -88,7 +89,7 @@ private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends O
 private [internal] final class InfixLOp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         reduceWhilePrecGreaterOrEqual(state, shunt)
         state.operators.push(this)
         shunt.gotoPreAtom(ctx, state)
@@ -103,7 +104,7 @@ private [internal] final class InfixLOp(f: (Any, Any) => Any, val prec: Int) ext
 private [internal] final class InfixROp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = false
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         reduceWhilePrecGreater(state, shunt)
         state.operators.push(this)
         shunt.gotoPreAtom(ctx, state)
@@ -118,7 +119,7 @@ private [internal] final class InfixROp(f: (Any, Any) => Any, val prec: Int) ext
 private [internal] final class InfixNOp(f: (Any, Any) => Any, val prec: Int) extends Operator {
     private [instructions] def isPostfix: Boolean = false
     private [instructions] def isInfixNonAssoc: Boolean = true
-    private [instructions] def handle(ctx: Context, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
+    private [instructions] def handle(ctx: InterpreterContext, pc: Int, state: ShuntingYardState, shunt: Shunt): Int = {
         reduceWhilePrecGreater(state, shunt)
         if (state.operators.nonEmpty && state.operators.peek.isInfixNonAssoc && state.operators.peek.prec == prec) {
             // This is a special case in which non-associative operators are chained
@@ -147,8 +148,8 @@ private [internal] object ShuntingYardState {
     def empty = new ShuntingYardState(new ArrayStack(), new ArrayStack(), true)
 }
 
-private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixLabel: Int, wraps: Array[Array[Any => Any]]) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixLabel: Int, wraps: Array[Array[Any => Any]]) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         if (ctx.good) {
             val token = ctx.stack.pop[ShuntToken]()
             val state = ctx.stack.peek[ShuntingYardState]
@@ -159,7 +160,7 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         else handleBadContext(ctx, pc)
     }
 
-    private final def handleBadContext(ctx: Context, pc: Int): Int = {
+    private final def handleBadContext(ctx: InterpreterContext, pc: Int): Int = {
         val handlerCheck = ctx.handlers.check
         ctx.popHandler()
         ctx.states = ctx.states.tail
@@ -186,7 +187,7 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
         postfixInfixLabel
     }
 
-    private [instructions] final def produceResult(ctx: Context, pc: Int): Int = {
+    private [instructions] final def produceResult(ctx: InterpreterContext, pc: Int): Int = {
         val state = ctx.stack.peek[ShuntingYardState]
 
         reduceAll(state)
@@ -229,13 +230,13 @@ private [internal] final class Shunt(var prefixAtomLabel: Int, var postfixInfixL
 
     override def labels: Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(???, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(
-        handlers -> prefixAtomLabel,
-        handlers -> postfixInfixLabel,
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(
+        prefixAtomLabel -> StackInfo(stacksz - 1, handlers),
+        postfixInfixLabel -> StackInfo(stacksz - 1, handlers),
     )
 
     override def toString: String = s"Shunt(Prefix/Atom: $prefixAtomLabel, Postfix/Infix: $postfixInfixLabel)"

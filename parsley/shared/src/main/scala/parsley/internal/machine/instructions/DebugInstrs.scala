@@ -125,9 +125,9 @@ private [internal] final class LogBegin(var label: Int, override val name: Strin
 
     override def copy: Instr = LogBegin(label, name, ascii, break, watchedRegs)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class LogEnd(val name: String, val ascii: Boolean, break: Boolean, watchedRegs: Seq[(Int, String)]) extends Instr with DebugInstr with Logger {
@@ -149,9 +149,9 @@ private [internal] final class LogEnd(val name: String, val ascii: Boolean, brea
     }
     override def toString: String = s"LogEnd($name)"
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 private [instructions] trait ErrLogger extends PrettyPortal with Colours {
@@ -195,9 +195,9 @@ private [internal] final class LogErrBegin(var label: Int, override val name: St
 
     override def copy: Instr = LogErrBegin(label, name, ascii)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, HandlerInfo(label, stacksz + 1) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class LogErrEnd(override val name: String, override val ascii: Boolean)(implicit errBuilder: ErrorBuilder[?])
@@ -244,9 +244,9 @@ private [internal] final class LogErrEnd(override val name: String, override val
     }
     override def toString: String = s"LogErrEnd($name)"
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 private [instructions] object LogErrEnd {
     // TODO: We want to mark errors that are behind the current context offsets as amended in some way
@@ -280,9 +280,9 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
 
     override def copy: Instr = ProfileEnter(label, name, profiler)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class ProfileExit(name: String, profiler: Profiler) extends Instr {
@@ -296,9 +296,9 @@ private [internal] final class ProfileExit(name: String, profiler: Profiler) ext
 
     override def toString: String = s"ProfileExit($name)"
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 // $COVERAGE-ON$

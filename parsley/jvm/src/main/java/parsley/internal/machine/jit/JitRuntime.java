@@ -9,4 +9,8 @@ public class JitRuntime {
     public static void beforeInstruction(Object instr, int i, Object ctx) {
         System.err.println(instr);
     }
+    
+    public static void debug(String str) {
+        System.err.println(str);
+    }
 }

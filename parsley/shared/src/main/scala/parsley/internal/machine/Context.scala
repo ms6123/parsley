@@ -24,8 +24,6 @@ import stacks.{ArrayStack, CallStack, ErrorStack, HandlerStack, Stack, StateStac
 private [parsley] abstract class Context(private[machine] val input: String,
                                         numRegs: Int,
                                         private val sourceFile: Option[String]) {
-    /** This is the operand stack, where results go to live  */
-    private [machine] val stack: ArrayStack[Any] = new ArrayStack()
     /** Current offset into the input */
     private [machine] var offset: Int = 0
     /** The length of the input, stored for whatever reason */
@@ -131,16 +129,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
         assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
         failImpl()
     }
-
-    private [machine] def push(x: Any) = {
-        stack.push(x)
-    }
-    private [machine] def unsafePush(x: Any) = {
-        stack.upush(x)
-    }
-    private [machine] def exchange(x: Any) = {
-        stack.exchange(x)
-    }
+    
     private [machine] def peekChar: Char = input.charAt(offset)
     private [machine] def peekChar(lookAhead: Int): Char = input.charAt(offset + lookAhead)
     private [machine] def moreInput: Boolean = offset < inputsz

@@ -11,7 +11,7 @@ import parsley.debug.internal.{DebugContext, DivergenceContext}
 
 import parsley.internal.deepembedding.frontend.LazyParsley
 import parsley.internal.machine.{Context, InterpreterContext}
-import parsley.internal.machine.instructions.{DebugInstr, Instr, InstrWithLabel}
+import parsley.internal.machine.instructions.{DebugInstr, HandlerInfo, Instr, InstrWithLabel, StackInfo}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.stacks.Stack.StackExt
 
@@ -36,9 +36,9 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
 
     override def copy: Instr = EnterParser(label, origin, isIterative, userAssignedName)(dbgCtx)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 // Add a parse attempt to the current context at the current callstack point, and leave the current
@@ -81,9 +81,9 @@ private [internal] class AddAttemptAndLeave(dbgCtx: DebugContext) extends Instr 
     override def toString: String = "AddAttemptAndLeave"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], userAssignedName: Option[String])(dtx: DivergenceContext) extends InstrWithLabel with DebugInstr {
@@ -102,9 +102,9 @@ private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], us
 
     override def copy: Instr = TakeSnapshot(label, origin, userAssignedName)(dtx)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr with DebugInstr {
@@ -118,9 +118,9 @@ private [internal] class DropSnapshot(dtx: DivergenceContext) extends Instr with
     override def toString: String = "DropSnapshot"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolean, refs: RefCodec*) extends Instr {
@@ -150,5 +150,5 @@ private [internal] class TriggerBreakpoint(dbgCtx: DebugContext, isAfter: Boolea
     override def toString: String = "TriggerBreakpoint"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }

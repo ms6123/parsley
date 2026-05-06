@@ -12,43 +12,53 @@ import parsley.token.errors.SpecializedFilterConfig
 
 import parsley.internal.collection.immutable.Trie
 import parsley.internal.errors.{ExpectDesc, ExpectItem, ExpectRaw}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, ExpectedError}
-import parsley.internal.machine.instructions.Instr
+import parsley.internal.machine.instructions.{HandlerInfo, Instr, JitImpl, SpecializedInstr, StackInfo}
 
-private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr {
+private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr with SpecializedInstr {
     def this(escTrie: Trie[Int], escs: Set[String]) = this(escTrie, escs.view.map(_.length).max, escs.map(new ExpectRaw(_)))
     // Do not consume input on failure, it's possible another escape sequence might share a lead
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        findFirst(ctx, pc, 0, escTrie)
+        val res = findFirst(ctx, 0, escTrie)
+        if (ctx.good) {
+            ctx.push(res)
+            pc + 1
+        } else {
+            res
+        }
+    }
+    
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        findFirst(ctx, 0, escTrie)
     }
 
-    @tailrec private def findLongest(ctx: Context, pc: Int, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Int = {
+    @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Int = {
         val (nextLongestChar, nextLongestSz) = escs.get("") match {
             case Some(x) => (x, off)
             case None => (longestChar, longestSz)
         }
         lazy val escsNew = escs.suffixes(ctx.peekChar(off))
-        if (ctx.moreInput(off + 1) && escsNew.nonEmpty) findLongest(ctx, pc, off + 1, escsNew, nextLongestChar, nextLongestSz)
+        if (ctx.moreInput(off + 1) && escsNew.nonEmpty) findLongest(ctx, off + 1, escsNew, nextLongestChar, nextLongestSz)
         else {
             ctx.fastUncheckedConsumeChars(nextLongestSz)
-            ctx.push(nextLongestChar)
-            pc + 1
+            nextLongestChar
         }
     }
 
-    @tailrec private def findFirst(ctx: Context, pc: Int, off: Int, escs: Trie[Int]): Int = {
+    @tailrec private def findFirst(ctx: Context, off: Int, escs: Trie[Int]): Int = {
         lazy val escsNew = escs.suffixes(ctx.peekChar(off))
         val couldTryMore = ctx.moreInput(off + 1) && escsNew.nonEmpty
         escs.get("") match {
-            case Some(x) if couldTryMore => findLongest(ctx, pc, off + 1, escsNew, x, off)
+            case Some(x) if couldTryMore => findLongest(ctx, off + 1, escsNew, x, off)
             case Some(x) =>
                 ctx.fastUncheckedConsumeChars(off)
-                ctx.push(x)
-                pc + 1
-            case None if couldTryMore => findFirst(ctx, pc, off + 1, escsNew)
+                x
+            case None if couldTryMore => findFirst(ctx, off + 1, escsNew)
             case None => ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, caretWidth))
         }
     }
@@ -56,9 +66,13 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
     // $COVERAGE-OFF$
     override def toString: String = "EscapeMapped"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 
-private [machine] abstract class EscapeSomeNumber(radix: Int) extends Instr {
+private [machine] abstract class EscapeSomeNumber(radix: Int) extends Instr with SpecializedInstr {
     final def someNumber(ctx: Context, n: Int): EscapeSomeNumber.Result = {
         assume(n > 0, "n cannot be zero for EscapeAtMost or EscapeExactly")
         if (ctx.moreInput && pred(ctx.peekChar)) go(ctx, n - 1, ctx.consumeChar().asDigit) else EscapeSomeNumber.NoDigits
@@ -85,6 +99,10 @@ private [machine] abstract class EscapeSomeNumber(radix: Int) extends Instr {
         case 8 => isOctDigit(_)
         case 2 => c => c == '0' || c == '1'
     }
+
+    final override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    final override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 private [token] object EscapeSomeNumber {
     sealed abstract class Result
@@ -94,7 +112,7 @@ private [token] object EscapeSomeNumber {
 }
 
 private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSomeNumber(radix) {
-    override def apply(ctx: Context, pc: Int): Int = someNumber(ctx, n) match {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = someNumber(ctx, n) match {
         case EscapeSomeNumber.Good(num) =>
             assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
             ctx.push(num)
@@ -105,6 +123,19 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
             ctx.push(num)
             pc + 1
     }
+    
+    @JitImpl
+    def apply(ctx: Context): Any = someNumber(ctx, n) match {
+        case EscapeSomeNumber.Good(num) =>
+            assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
+            num
+        case EscapeSomeNumber.NoDigits => 
+            ctx.expectedFail(expected, unexpectedWidth = 1)
+            null
+        case EscapeSomeNumber.NoMoreDigits(_, num) =>
+            ctx.addHints(expectedSet, unexpectedWidth = 1)
+            num
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = s"EscapeAtMost(n = $n, radix = $radix)"
@@ -113,7 +144,7 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
 
 private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], inexactErr: SpecializedFilterConfig[Int]) extends EscapeSomeNumber(radix) {
     private val (m :: ms) = ns: @unchecked
-    def apply(ctx: Context, pc: Int): Int = {
+    def apply(ctx: InterpreterContext, pc: Int): Int = {
         val origOff = ctx.offset
         val origLine = ctx.line
         val origCol = ctx.col
@@ -126,6 +157,25 @@ private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], ine
             case EscapeSomeNumber.NoMoreDigits(remaining, _) =>
                 assume(remaining != 0, "cannot be left with 0 remaining digits and failed")
                 ctx.fail(inexactErr.mkError(origOff, origLine, origCol, ctx.offset - origOff, m - remaining))
+        }
+    }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        val origOff = ctx.offset
+        val origLine = ctx.line
+        val origCol = ctx.col
+        someNumber(ctx, m) match {
+            case EscapeSomeNumber.Good(num) =>
+                assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
+                go(ctx, m, ms, num)
+            case EscapeSomeNumber.NoDigits =>
+                ctx.expectedFail(expected, unexpectedWidth = 1)
+                null
+            case EscapeSomeNumber.NoMoreDigits(remaining, _) =>
+                assume(remaining != 0, "cannot be left with 0 remaining digits and failed")
+                ctx.fail(inexactErr.mkError(origOff, origLine, origCol, ctx.offset - origOff, m - remaining))
+                null
         }
     }
 

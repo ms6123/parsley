@@ -5,13 +5,14 @@
  */
 package parsley.internal.machine.instructions
 
+import scala.annotation.unused
 import scala.collection.mutable
 
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 
-private [internal] final class Many(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Many(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         if (ctx.good) {
             val x = ctx.stack.upop()
             ctx.stack.peek[mutable.Builder[Any, Any]] += x
@@ -32,11 +33,11 @@ private [internal] final class Many(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = Many(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
 // TODO: Factor these handlers out!
@@ -59,15 +60,15 @@ private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = SkipMany(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers))
 }
 
-private [internal] final class ChainPost(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class ChainPost(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         if (ctx.good) {
             val op = ctx.stack.pop[Any => Any]()
             ctx.stack.exchange(op(ctx.stack.upeek))
@@ -87,11 +88,11 @@ private [internal] final class ChainPost(var label: Int) extends InstrWithLabel 
 
     override def copy: Instr = ChainPost(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
 private final class AndThen[-A, B, +C](f: A => B, g: B => C) extends (A => C) {
@@ -101,8 +102,8 @@ private final class AndThen[-A, B, +C](f: A => B, g: B => C) extends (A => C) {
     }
 }
 
-private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class ChainPre(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         if (ctx.good) {
             val f = ctx.stack.pop[Any => Any]()
             ctx.stack.exchange(new AndThen(f, ctx.stack.peek[Any => Any]))
@@ -122,15 +123,15 @@ private [internal] final class ChainPre(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = ChainPre(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Chainl(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         if (ctx.good) {
             val y = ctx.stack.upop()
             val op = ctx.stack.pop[(Any, Any) => Any]()
@@ -151,11 +152,11 @@ private [internal] final class Chainl(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = Chainl(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 2, handlers))
 }
 
 private [internal] final class ROps(val op: (Any, Any) => Any, val lx: Any, val rest: ROps)
@@ -167,14 +168,21 @@ private [internal] object ROps {
     }
 }
 
-private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val f = ctx.stack.pop[(Any, Any) => Any]()
         val x = ctx.stack.upop()
         ctx.stack.exchange(new ROps(f, x, ctx.stack.peek[ROps]))
         ctx.popHandler()
         label
+    }
+    
+    @JitImpl(consumeOperands = 3)
+    def apply(rops: Any, x: Any, f: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.popHandler()
+        new ROps(f.asInstanceOf, x, rops.asInstanceOf)
     }
 
     // $COVERAGE-OFF$
@@ -183,15 +191,15 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
 
     override def copy: Instr = ChainrJump(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 2, handlers.tail))
 }
 
-private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.catchNoConsumed(ctx.handlers.check) {
             ctx.popHandler()
@@ -201,21 +209,35 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr {
             pc + 1
         }
     }
+    
+    @JitImpl(consumeOperands = 2)
+    def apply(rops: Any, y: Any, ctx: Context): Any = {
+        ensureHandlerInstruction(ctx)
+        val check = ctx.handlers.check
+        ctx.popHandler()
+        if (ctx.offset != check) {
+            ctx.fail()
+            null
+        } else {
+            ctx.addErrorToHintsAndPop()
+            ROps.reduce(rops.asInstanceOf, wrap(y))
+        }
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = "ChainrOpHandler"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 }
 private [internal] object ChainrOpHandler  {
     def apply[A, B](wrap: A => B): ChainrOpHandler = new ChainrOpHandler(wrap.asInstanceOf[Any => Any])
 }
 
-private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upop()
         ctx.stack.pop_() // the bool
@@ -226,6 +248,16 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
         ctx.updateCheckOffset()
         label
     }
+    
+    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
+    def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        builder.asInstanceOf[mutable.Builder[Any, Any]] += x
+        // pop second handler and jump
+        ctx.popHandler()
+        ctx.updateCheckOffset()
+        builder
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = s"SepEndBy1Jump($label)"
@@ -233,15 +265,15 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
 
     override def copy: Instr = SepEndBy1Jump(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers.tail))
 }
 
 private [instructions] object SepEndBy1Handlers {
-    def pushAccWhenCheckValidAndContinue(ctx: Context, pc: Int, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Int = {
+    def pushAccWhenCheckValidAndContinue(ctx: InterpreterContext, pc: Int, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Int = {
         if (ctx.offset != check || !readP) ctx.fail()
         else {
             ctx.addErrorToHintsAndPop()
@@ -252,8 +284,8 @@ private [instructions] object SepEndBy1Handlers {
     }
 }
 
-private [internal] object SepEndBy1SepHandler extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object SepEndBy1SepHandler extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.popHandler()
@@ -266,36 +298,64 @@ private [internal] object SepEndBy1SepHandler extends Instr {
         ctx.stack.upush(true)
         pc + 1
     }
+    
+    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
+    def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
+        ensureHandlerInstruction(ctx)
+        val check = ctx.handlers.check
+        ctx.popHandler()
+
+        builder.asInstanceOf[mutable.Builder[Any, Any]] += x
+
+        ctx.handlers.check = check
+        builder
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = "SepEndBy1SepHandler"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object SepEndBy1WholeHandler extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.popHandler()
         val readP = ctx.stack.pop[Boolean]()
         SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, pc, check, ctx.stack.peek[mutable.Builder[Any, Any]], readP)
     }
+    
+    @JitImpl(consumeOperands = 2)
+    def apply(builder: Any, readP: Any, ctx: Context): Any = {
+        ensureHandlerInstruction(ctx)
+        val check = ctx.handlers.check
+        ctx.popHandler()
+        if (ctx.offset != check || !readP.asInstanceOf[Boolean]) {
+            // Fail
+            builder
+        }
+        else {
+            ctx.addErrorToHintsAndPop()
+            ctx.good = true
+            builder.asInstanceOf[mutable.Builder[Any, Any]].result()
+        }
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = "SepEndBy1WholeHandler"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 }
 
-private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final case class ManyUntil(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {
             case ManyUntil.Stop => 
@@ -312,16 +372,18 @@ private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel 
 
     override def copy: Instr = ManyUntil(label)
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 private [parsley] object ManyUntil {
     object Stop
 }
 
-private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {
             case ManyUntil.Stop => pc + 1
@@ -334,7 +396,9 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
 
     override def copy: Instr = SkipManyUntil(label)
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }

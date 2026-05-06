@@ -5,6 +5,8 @@
  */
 package parsley.internal.machine.instructions
 
+import scala.annotation.unused
+
 import parsley.XAssert.*
 
 import parsley.internal.machine.{Context, InterpreterContext, ParseRunner}
@@ -12,50 +14,74 @@ import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, EmptyHints}
 
 // Stack Manipulators
-private [internal] final class Push[A](x: A) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Push[A](x: A) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(x)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): A = {
+        ensureRegularInstruction(ctx)
+        x
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Push($x)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Push {
     val Unit = new Push(())
 }
 
-private [internal] final class Fresh[A](x: =>A) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Fresh[A](x: =>A) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(x)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): A = {
+        ensureRegularInstruction(ctx)
+        x
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Fresh($x)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object Pop extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Pop extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.pop_()
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(@unused operand: Any, ctx: Context): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = "Pop"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object Swap extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Swap extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val y = ctx.stack.upop()
         val x = ctx.stack.peekAndExchange(y)
@@ -66,32 +92,49 @@ private [internal] object Swap extends Instr {
     override def toString: String = "Swap"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 // Applicative Functors
-private [internal] object Apply extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Apply extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upop()
         val f = ctx.stack.peek[Any => Any]
         ctx.exchange(f(x))
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 2)
+    def apply(f: Any, x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        f.asInstanceOf[Any => Any](x)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "Apply"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 // Monadic
-private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        val runner = f(ctx.stack.upop(), ctx.regs.size, !ctx.isInstanceOf[InterpreterContext])
-        runner.dynCall(ctx, pc)
+        val runner = f(ctx.stack.upop(), ctx.regs.length, false)
+        runner.dynCall(ctx, pc).asInstanceOf[Int]
     }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        val runner = f(x, ctx.regs.length, true)
+        runner.dynCall(ctx, -1)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "DynCall(?)"
     // $COVERAGE-ON$
@@ -111,12 +154,12 @@ private [internal] object Halt extends Instr {
     override def toString: String = "Halt"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final case class Call(var label: Int) extends InstrWithLabel {
+private [internal] final case class Call(var label: Int, producesResults: Boolean) extends InstrWithLabel {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.call(label)
@@ -125,9 +168,13 @@ private [internal] final case class Call(var label: Int) extends InstrWithLabel 
     override def toString: String = s"Call($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = Call(label)
+    override def copy: Instr = Call(label, producesResults)
 
     override def labels: Seq[Int] = Seq.empty
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(if (producesResults) stacksz + 1 else stacksz, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(if (producesResults) stacksz + 1 else stacksz, handlers))
 }
 
 private [internal] object Return extends Instr {
@@ -139,9 +186,9 @@ private [internal] object Return extends Instr {
     override def toString: String = "Return"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class Empty(width: Int) extends Instr {
@@ -153,7 +200,7 @@ private [internal] final class Empty(width: Int) extends Instr {
     override def toString: String = "Empty"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Empty {
     val zero = new Empty(0)
@@ -171,9 +218,9 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
 
     override def copy: Instr = PushHandler(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] object PopHandler extends Instr {
@@ -186,9 +233,9 @@ private [internal] object PopHandler extends Instr {
     override def toString: String = "PopHandler"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class PushHandlerAndClearHints(var label: Int) extends InstrWithLabel {
@@ -204,9 +251,9 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
 
     override def copy: Instr = PushHandlerAndClearHints(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) extends InstrWithLabel {
@@ -223,9 +270,9 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
 
     override def copy: Instr = PushHandlerAndStateAndClearHints(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class PushHandlerAndState(var label: Int) extends InstrWithLabel {
@@ -241,9 +288,9 @@ private [internal] final class PushHandlerAndState(var label: Int) extends Instr
 
     override def copy: Instr = PushHandlerAndState(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] object PopHandlerAndState extends Instr {
@@ -257,9 +304,9 @@ private [internal] object PopHandlerAndState extends Instr {
     override def toString: String = "PopHandlerAndState"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class Jump(var label: Int) extends InstrWithLabel {
@@ -273,11 +320,11 @@ private [internal] final class Jump(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = Jump(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers))
 }
 
 private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWithLabel {
@@ -293,11 +340,11 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
 
     override def copy: Instr = JumpAndPopCheck(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers.tail))
 }
 
 private [internal] final class JumpAndPopState(var label: Int) extends InstrWithLabel {
@@ -313,11 +360,11 @@ private [internal] final class JumpAndPopState(var label: Int) extends InstrWith
 
     override def copy: Instr = JumpAndPopState(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers.tail))
 }
 
 private [internal] final class Catch(var label: Int) extends InstrWithLabel {
@@ -335,9 +382,9 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = Catch(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 private [internal] final class RestoreAndPushHandler(var label: Int) extends InstrWithLabel {
@@ -355,9 +402,9 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
 
     override def copy: Instr = RestoreAndPushHandler(label)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(label :: handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 /*private [internal] object Refail extends Instr {

@@ -41,10 +41,14 @@ object Optimizer {
             }
         }
 
+        val producesResults = instrs.view.collect {
+            case Call(id, producesResults) => id -> producesResults
+        }.toMap
+
         val functions = functionRanges.map { funcRange =>
             for (i <- funcRange) {
                 instrs(i) match {
-                    case Call(_) =>
+                    case _: Call =>
                     case instr => instr.relabel(_ - funcRange.start)
                 }
             }
@@ -67,7 +71,7 @@ object Optimizer {
 
             tailrecOptimization(funcRange, funcInstrs)
 
-            ParserFunction(funcRange.start, funcInstrs.toArray, determineSuccessors(funcInstrs))
+            ParserFunction(funcRange.start, funcInstrs.toArray, producesResults.applyOrElse(funcRange.start, _ => true), determineFunctionInfo(funcInstrs))
         }
 
         val startMethod = ParserGenerator(functions.toArray).generate()
@@ -82,12 +86,10 @@ object Optimizer {
                             .run(input, numRegs, sourceFile)
                 }
 
-            override def dynCall(ctx: Context, pc: Int): Int =
+            override def dynCall(ctx: Context, pc: Int): Any =
                 ctx match {
                     case ctx: JitContext =>
-                        //noinspection ScalaUnusedExpression
-                        startMethod.invokeExact(ctx): Boolean
-                        if (ctx.good) pc + 1 else -1
+                        startMethod.invokeExact(ctx)
                 }
         }
     }
@@ -95,31 +97,29 @@ object Optimizer {
     private def tailrecOptimization(funcRange: Range, instrs: mutable.ArrayBuffer[Instr]): Unit = {
         for (i <- 0 until instrs.indices.last) {
             (instrs(i), instrs(i + 1)) match {
-                case (Call(callId), Return) if callId == funcRange.start =>
+                case (Call(callId, _), Return) if callId == funcRange.start =>
                     instrs(i) = Jump(0)
                 case _ =>
             }
         }
     }
 
-    private def determineSuccessors(instrs: mutable.ArrayBuffer[Instr]): Array[SuccessorInfo] = {
-        val visited = Array.fill(instrs.length)(mutable.Set.empty[List[Int]])
-        val toVisit = mutable.Queue(List(-1) -> 0)
+    private def determineFunctionInfo(instrs: mutable.ArrayBuffer[Instr]): FunctionInfo = {
+        val visited = Array.fill(instrs.length)(mutable.Set.empty[StackInfo])
+        val toVisit = mutable.Queue(0 -> StackInfo(0, List(HandlerInfo(-1, 0))))
 
-        visited(0) += List(-1)
+        visited(0) += StackInfo(0, List(HandlerInfo(-1, 0)))
 
         while (toVisit.nonEmpty) {
-            val (handlers, pos) = toVisit.dequeue()
+            val (pos, StackInfo(stacksz, handlers)) = toVisit.dequeue()
 
-            for ((nextHandlers, nextPos) <- instrs(pos).allPaths(handlers, pos)) {
-                if (nextPos != -1 && visited(nextPos).add(nextHandlers)) {
-                    toVisit.enqueue(nextHandlers -> nextPos)
+            for ((nextPos, nextStack) <- instrs(pos).allPaths(stacksz, handlers, pos)) {
+                if (nextPos != -1 && visited(nextPos).add(nextStack)) {
+                    toVisit.enqueue(nextPos -> nextStack)
                 }
             }
         }
 
-        instrs.view.zip(visited).zipWithIndex.map { case ((instr, possibleHandlers), pos) =>
-            SuccessorInfo(instr, possibleHandlers, pos)
-        }.toArray
+        FunctionInfo(instrs.toArray, visited.map(it => if (it.sizeIs > 1) ??? else it.headOption))
     }
 }

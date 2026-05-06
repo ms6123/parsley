@@ -13,7 +13,8 @@ import org.objectweb.asm.{Label, Opcodes, Type}
 private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
 private val IMPL_NAME = "parse"
-private val IMPL_DESC = Type.getMethodDescriptor(Type.BOOLEAN_TYPE, JIT_CONTEXT)
+private val IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
+private val VOID_IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[Unit]), JIT_CONTEXT)
 
 private object Methods {
     object Context {
@@ -22,6 +23,16 @@ private object Methods {
 
     object Instr {
         val APPLY: Method = classOf[Instr].getMethod("apply", classOf[Context], classOf[Int])
+    }
+
+    object Either {
+        val LEFT_VALUE: Method = classOf[Left[?, ?]].getMethod("value")
+        val RIGHT_VALUE: Method = classOf[Right[?, ?]].getMethod("value")
+    }
+
+    object Builder {
+        val RESULT: Method = classOf[mutable.Builder[?, ?]].getMethod("result")
+        val ADD_ONE: Method = classOf[mutable.Builder[?, ?]].getMethod("addOne", classOf[Any])
     }
 }
 
@@ -32,12 +43,12 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
     def generate(): MethodHandle = {
         val classes = functions.map(generate)
-        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(classOf[Boolean], classOf[JitContext]))
+        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(classOf[AnyRef], classOf[JitContext]))
     }
 
     private def generate(function: ParserFunction): Class[?] =
         ctx.newClass(Opcodes.ACC_PUBLIC, className(function.id)) { classVisitor =>
-            val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, IMPL_NAME, IMPL_DESC, null, null)
+            val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, IMPL_NAME, implDesc(function.producesResults), null, null)
             val instrLabels = function.instrs.map(_ => Label())
             val successLabel = Label()
             val failureLabel = Label()
@@ -46,39 +57,101 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
             def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels(pos)
 
-            def jumpToSuccessors(pos: Int, successors: Map[Int, Label]): Unit = {
-                successors.size match {
-                    case 0 =>
-                        vis.visitInsn(Opcodes.POP)
-                        if (pos != function.instrs.indices.last) {
-                            vis.visitJumpInsn(Opcodes.GOTO, successLabel)
-                        }
-                    case 1 if successors.contains(pos + 1) =>
-                        vis.visitInsn(Opcodes.POP)
-                    case 1 =>
-                        vis.visitInsn(Opcodes.POP)
-                        vis.visitJumpInsn(Opcodes.GOTO, successors.head._2)
+            def performActions(instr: Instr, actions: Seq[AfterAction]): Unit = {
+                for (action <- actions) {
+                    action match {
+                        case AfterAction.PopOperands(n) =>
+                            for (_ <- 1 to n / 2) {
+                                vis.visitInsn(Opcodes.POP2)
+                            }
+                            if (n % 2 == 1) {
+                                vis.visitInsn(Opcodes.POP)
+                            }
+                    }
+                }
+            }
+
+            def jumpToSuccessors(pos: Int, successors: Seq[(Successor, Label)]): Unit = {
+                val instr = function.instrs(pos)
+                val fallThroughLabel = instrLabels.applyOrElse(pos + 1, _ => null)
+
+                successors match {
+                    case Seq() =>
+                        vis.visitJumpInsn(Opcodes.GOTO, successLabel)
+                    case Seq((Successor(successorPc, afterActions), nextLabel)) if nextLabel eq fallThroughLabel =>
+                        performActions(instr, afterActions)
+                    case Seq((Successor(successorPc, afterActions), nextLabel)) =>
+                        performActions(instr, afterActions)
+                        vis.visitJumpInsn(Opcodes.GOTO, nextLabel)
                     case _ =>
-                        successors.size match {
-                            case 2 if successors.contains(pos + 1) =>
-                                vis.loadInt(pos + 1)
-                                vis.visitJumpInsn(Opcodes.IF_ICMPNE, successors.find(_._1 != pos + 1).get._2)
-                            case 2 =>
-                                val Seq(a, b) = successors.toSeq
-                                vis.loadInt(a._1)
-                                vis.visitJumpInsn(Opcodes.IF_ICMPEQ, a._2)
-                                vis.visitJumpInsn(Opcodes.GOTO, b._2)
+                        successors match {
+                            case Seq(path1, path2) if (path1._2 eq fallThroughLabel) || (path2._2 eq fallThroughLabel) =>
+                                val ((Successor(fallThroughPc, fallThroughActions), _), (Successor(jumpPc, jumpActions), jumpLabel)) =
+                                    if (path1._2 eq fallThroughLabel) (path1, path2) else (path2, path1)
+
+                                vis.loadInt(fallThroughPc)
+                                if (jumpActions.isEmpty) {
+                                    vis.visitJumpInsn(Opcodes.IF_ICMPNE, jumpLabel)
+                                } else {
+                                    val fallThroughLabel = Label()
+                                    vis.visitJumpInsn(Opcodes.IF_ICMPEQ, fallThroughLabel)
+                                    performActions(instr, jumpActions)
+                                    vis.visitJumpInsn(Opcodes.GOTO, jumpLabel)
+                                    vis.visitLabel(fallThroughLabel)
+                                }
+                                performActions(instr, fallThroughActions)
+                            case Seq((successor1, label1), (successor2, label2)) =>
+                                vis.loadInt(successor1.pc)
+
+                                (successor1.afterActions, successor2.afterActions) match {
+                                    case (Seq(), Seq()) =>
+                                        vis.visitJumpInsn(Opcodes.IF_ICMPEQ, label1)
+                                        vis.visitJumpInsn(Opcodes.GOTO, label2)
+                                    case (afterActions, Seq()) =>
+                                        vis.visitJumpInsn(Opcodes.IF_ICMPNE, label2)
+                                        performActions(instr, afterActions)
+                                        vis.visitJumpInsn(Opcodes.GOTO, label1)
+                                    case (Seq(), afterActions) =>
+                                        vis.visitJumpInsn(Opcodes.IF_ICMPEQ, label1)
+                                        performActions(instr, afterActions)
+                                        vis.visitJumpInsn(Opcodes.GOTO, label2)
+                                    case (afterActions1, afterActions2) =>
+                                        val successor1Label = Label()
+                                        vis.visitJumpInsn(Opcodes.IF_ICMPEQ, successor1Label)
+                                        performActions(instr, afterActions2)
+                                        vis.visitJumpInsn(Opcodes.GOTO, label2)
+                                        vis.visitLabel(successor1Label)
+                                        performActions(instr, afterActions1)
+                                        vis.visitJumpInsn(Opcodes.GOTO, label1)
+                                }
                             case _ =>
                                 val keys = successors.toArray
-                                keys.sortInPlaceBy(_._1)
-                                val (first, rest) = (keys.head, keys.tail)
-                                vis.visitLookupSwitchInsn(first._2, rest.map(_._1), rest.map(_._2))
+                                keys.sortInPlaceBy(_._1.pc)
+                                val afterSwitchTasks = mutable.Buffer.empty[() => Unit]
+
+                                val switchLabels = keys.map {
+                                    case (Successor(pc, Seq()), label) => label
+                                    case (Successor(pc, afterActions), label) =>
+                                        val newLabel = Label()
+                                        afterSwitchTasks += (() => {
+                                            vis.visitLabel(newLabel)
+                                            performActions(instr, afterActions)
+                                            vis.visitJumpInsn(Opcodes.GOTO, label)
+                                        })
+                                        newLabel
+                                }
+
+                                vis.visitLookupSwitchInsn(switchLabels.last, keys.view.init.map(_._1.pc).toArray, switchLabels.init)
+
+                                for (task <- afterSwitchTasks) {
+                                    task()
+                                }
                         }
                 }
             }
 
-            for ((instr, pos) <- function.instrs.view.zipWithIndex if function.successorInfos(pos).isReachable) {
-                val successors = function.successorInfos(pos)
+            for ((instr, pos) <- function.instrs.view.zipWithIndex if function.info.instrInfos(pos).isReachable) {
+                val instrInfo = function.info.instrInfos(pos)
 
                 vis.visitLabel(instrLabels(pos))
 
@@ -87,45 +160,196 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 //                vis.visitVarInsn(Opcodes.ALOAD, 0)
 //                vis.visitMethodInsn(Opcodes.INVOKESTATIC, JIT_RUNTIME, "beforeInstruction", "(Ljava/lang/Object;ILjava/lang/Object;)V", false)
 
+                def jumpToAllSuccessors(): Unit = {
+                    val successorLabels = Seq.newBuilder[(Successor, Label)]
+
+                    successorLabels ++= instrInfo.goodPaths.map(it => it -> labelForPos(it.pc))
+                    successorLabels ++= instrInfo.badPath.map(it => Successor(-1, it.afterActions) -> labelForPos(it.pc))
+
+                    val result = successorLabels.result()
+                    if (result.sizeIs <= 1) {
+                        // No need for pc
+                        vis.visitInsn(Opcodes.POP)
+                    }
+                    jumpToSuccessors(pos, successorLabels.result())
+                }
+
+                def jumpUsingReturnValue(info: JitImpl, returnType: Class[?]): Unit = {
+                    if (returnType eq classOf[Int]) {
+                        jumpToAllSuccessors()
+                        return
+                    }
+
+                    val goodPaths = instrInfo.goodPaths
+
+                    instrInfo.badPath match {
+                        case Some(Successor(badPc, badAfterActions)) =>
+                            if (goodPaths.isEmpty) {
+                                jumpToSuccessors(pos, Seq(Successor(badPc, badAfterActions) -> labelForPos(badPc)))
+                                return
+                            }
+                            loadContext()
+                            vis.callMethod(Methods.Context.IS_GOOD)
+                            if (badAfterActions.isEmpty) {
+                                vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
+                            } else {
+                                val afterLabel = Label()
+                                vis.visitJumpInsn(Opcodes.IFNE, afterLabel)
+                                performActions(instr, badAfterActions)
+                                vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
+                                vis.visitLabel(afterLabel)
+                            }
+                        case _ =>
+                    }
+
+                    val possiblePaths = returnType match {
+                        case t if t == classOf[Unit] =>
+                            goodPaths
+                        case t if t == classOf[Any] =>
+                            if (goodPaths.sizeIs <= 1) {
+                                goodPaths
+                            } else if (info.fallthroughMarker ne classOf[Nothing]) {
+                                val Successor(fallThroughPc, fallThroughActions) = instrInfo.fallThroughPath.get
+                                require(fallThroughActions.isEmpty)
+
+                                vis.visitInsn(Opcodes.DUP)
+                                vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(info.fallthroughMarker))
+                                vis.visitJumpInsn(Opcodes.IFNE, labelForPos(fallThroughPc))
+
+                                instrInfo.jumpPaths
+                            } else {
+                                ???
+                            }
+                    }
+
+                    require(possiblePaths.sizeIs <= 1)
+                    jumpToSuccessors(pos, possiblePaths.map(it => it -> labelForPos(it.pc)))
+                }
+
+                def applySpecialized(instr: Instr & SpecializedInstr): Unit = {
+                    val (method, info) = InstructionImpls.getImpl(instr)
+                    val trailingParams = method.getParameterTypes.drop(info.consumeOperands + 1)
+                    info.consumeOperands match {
+                        case 0 =>
+                            vis.loadObject(instr)
+                        case 1 =>
+                            vis.loadObject(instr)
+                            vis.visitInsn(Opcodes.SWAP)
+                        case 2 =>
+                            vis.loadObject(instr)
+                            vis.visitInsn(Opcodes.DUP_X2)
+                            vis.visitInsn(Opcodes.POP)
+                        case 3 =>
+                            val toStore = info.consumeOperands - 2
+                            for (local <- toStore to 1 by -1) {
+                                vis.visitVarInsn(Opcodes.ASTORE, local)
+                            }
+                            vis.loadObject(instr)
+                            vis.visitInsn(Opcodes.DUP_X2)
+                            vis.visitInsn(Opcodes.POP)
+                            for (local <- 1 to toStore) {
+                                vis.visitVarInsn(Opcodes.ALOAD, local)
+                            }
+                    }
+
+                    loadContext()
+
+                    for (param <- trailingParams) {
+                        param match {
+                            case Integer.TYPE => vis.loadInt(pos)
+                        }
+                    }
+
+                    vis.callMethod(method)
+
+                    for (action <- info.afterActions) {
+                        action match {
+                            case JitImpl.Action.PushTrue =>
+                                vis.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;")
+                        }
+                    }
+
+                    jumpUsingReturnValue(info, method.getReturnType)
+                }
+
                 instr match {
-                    case _: Call =>
+                    case Call(id, producesResults) =>
+                        require(instrInfo.goodPaths == Seq(Successor(pos + 1, Seq())))
+
+                        loadContext()
+                        vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, implDesc(producesResults), false)
+                        if (canFail(id)) {
+                            val Successor(badPc, badAfterActions) = instrInfo.badPath.get
+                            loadContext()
+                            vis.callMethod(Methods.Context.IS_GOOD)
+                            if (badAfterActions.isEmpty) {
+                                vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
+                            } else {
+                                vis.visitJumpInsn(Opcodes.IFNE, labelForPos(pos + 1))
+                                performActions(instr, badAfterActions)
+                                vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
+                            }
+                        }
+                    case Case(label) =>
+                        val rightLabel = Label()
+
+                        vis.visitInsn(Opcodes.DUP)
+                        vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(classOf[Left[?, ?]]))
+                        vis.visitJumpInsn(Opcodes.IFEQ, rightLabel)
+
+                        vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Left[?, ?]]))
+                        vis.callMethod(Methods.Either.LEFT_VALUE)
+                        vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
+
+                        vis.visitLabel(rightLabel)
+                        vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Right[?, ?]]))
+                        vis.callMethod(Methods.Either.RIGHT_VALUE)
+                    case ManyUntil(label) =>
+                        val stopLabel = Label()
+
+                        vis.visitInsn(Opcodes.SWAP)
+                        vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[mutable.Builder[?, ?]]))
+                        vis.visitInsn(Opcodes.SWAP)
+
+                        vis.visitInsn(Opcodes.DUP)
+                        vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(classOf[ManyUntil.Stop.type]))
+                        vis.visitJumpInsn(Opcodes.IFNE, stopLabel)
+
+                        vis.callMethod(Methods.Builder.ADD_ONE)
+                        vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
+
+                        vis.visitLabel(stopLabel)
+                        vis.visitInsn(Opcodes.POP)
+                        vis.callMethod(Methods.Builder.RESULT)
                     case Return | Halt =>
                         // No-ops
-                        vis.loadInt(-1)
+                        vis.visitJumpInsn(Opcodes.GOTO, successLabel)
+                    case specialized: SpecializedInstr =>
+                        applySpecialized(specialized)
                     case _ =>
                         vis.loadObject(instr)
                         loadContext()
                         vis.loadInt(pos)
                         vis.callMethod(Methods.Instr.APPLY)
-                }
-
-                instr match {
-                    case Call(id) =>
-                        loadContext()
-                        vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, IMPL_DESC, false)
-                        if (canFail(id)) {
-                            vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(successors.badPath.get))
-                        } else {
-                            vis.visitInsn(Opcodes.POP)
-                        }
-                    case _ =>
-                        val successorLabels = Map.newBuilder[Int, Label]
-
-                        successorLabels ++= successors.goodPaths.map(it => it -> labelForPos(it))
-                        successorLabels ++= successors.badPath.map(-1 -> labelForPos(_))
-
-                        jumpToSuccessors(pos, successorLabels.result())
+                        jumpToAllSuccessors()
                 }
             }
 
-            vis.visitLabel(successLabel)
-            vis.visitInsn(Opcodes.ICONST_1)
-            vis.visitInsn(Opcodes.IRETURN)
-            vis.visitLabel(failureLabel)
-            vis.visitInsn(Opcodes.ICONST_0)
-            vis.visitInsn(Opcodes.IRETURN)
+            if (function.producesResults) {
+                vis.visitLabel(successLabel)
+                vis.visitInsn(Opcodes.ARETURN)
+                vis.visitLabel(failureLabel)
+                vis.visitInsn(Opcodes.ACONST_NULL)
+                vis.visitInsn(Opcodes.ARETURN)
+            } else {
+                vis.visitLabel(successLabel)
+                vis.visitLabel(failureLabel)
+                vis.visitInsn(Opcodes.RETURN)
+            }
             vis.visitEnd()
         }
+
+    private def implDesc(producesResults: Boolean) = if (producesResults) IMPL_DESC else VOID_IMPL_DESC
 
     private def canFail(id: Int, visited: Set[Int] = Set.empty): Boolean = if (canFailCache.contains(id)) canFailCache(id) else {
         val result = canFailImpl(id, visited)
@@ -135,10 +359,10 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
     private def canFailImpl(id: Int, visited: Set[Int] = Set.empty): Boolean = {
         val func = functionsById(id)
-        func.instrs.view.zip(func.successorInfos).exists { case (instr, successors) =>
+        func.instrs.view.zip(func.info.instrInfos).exists { case (instr, instrInfo) =>
             instr match {
-                case Call(id) => !visited.contains(id) && canFail(id, visited.incl(id))
-                case _ => successors.badPath.isDefined
+                case Call(id, _) => !visited.contains(id) && canFail(id, visited.incl(id))
+                case _ => instrInfo.badPath.isDefined
             }
         }
     }

@@ -9,11 +9,11 @@ import parsley.token.descriptions.PlusSignPresence
 
 import parsley.internal.deepembedding.Sign.{CombinedType, DoubleType, IntType, SignType}
 import parsley.internal.errors.{ExpectItem, ExpectRaw}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.ExpectedError
 
-private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPresence) extends Instr {
+private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPresence) extends Instr with SpecializedInstr {
     val neg: Any => Any = ty match {
         case IntType => ((x: IntType.resultType) => -x).asInstanceOf[Any => Any]
         case DoubleType => ((x: DoubleType.resultType) => -x).asInstanceOf[Any => Any]
@@ -25,7 +25,7 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         if (plusPresence ne PlusSignPresence.Illegal) Set(new ExpectRaw("+"), new ExpectRaw("-"))
         else                                          Set(new ExpectRaw("-"))
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // This could be simplified, but the "fail" branches need to be duplicated...
         if (ctx.moreInput && ctx.peekChar == '-') {
@@ -52,4 +52,6 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
     // $COVERAGE-OFF$
     override def toString: String = "TokenSign"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }

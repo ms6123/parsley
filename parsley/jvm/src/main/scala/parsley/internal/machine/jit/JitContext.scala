@@ -20,13 +20,11 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     private[machine] var handlers: JitHandlerStack = Stack.empty
 
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
-        //noinspection ScalaUnusedExpression
-        startMethod.invokeExact(this): Boolean
+        val result = startMethod.invokeExact(this)
         if (good) {
-            assert(stack.size == 1, s"stack must end a parse with exactly one item, it has ${stack.size}")
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
             assert(states.isEmpty, "there must be no residual states left at end of parse")
-            Success(stack.peek[A])
+            Success(result.asInstanceOf[A])
         }
         else {
             assert(handlers.isEmpty, "there must be no more handlers on end of parse")
@@ -40,16 +38,11 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     override private[machine] def ret(): Int = ???
 
     override protected def failImpl(): Int = {
-        if (!handlers.isEmpty) {
-            val handler = handlers
-            val diffstack = stack.usize - handler.stacksz
-            if (diffstack > 0) stack.drop(diffstack)
-        }
         -1
     }
 
     override private[machine] def pushHandler(label: Int): Unit = {
-        handlers = new JitHandlerStack(stack.usize, offset, handlers)
+        handlers = new JitHandlerStack(offset, handlers)
     }
 
     override private[machine] def popHandler(): Unit = {
@@ -61,7 +54,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {
         s"""[
-           |  stack     = [${stack.mkString(", ")}]
            |  input     = ${input.drop(offset)}
            |  pos       = ($line, $col)
            |  status    = $status
@@ -108,8 +100,7 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     override private[machine] def markErrorAsLexical(): Unit = ()
 }
 
-private final class JitHandlerStack(val stacksz: Int,
-                                    var check: Int,
+private final class JitHandlerStack(var check: Int,
                                     val tail: JitHandlerStack,
                                    ) extends HandlerStack
 
@@ -124,7 +115,7 @@ private [machine] object JitHandlerStack extends Stack[JitHandlerStack] {
         s"Handler:(-${x + 1})"
     }
 
-    override protected def head(xs: JitHandlerStack): ElemTy = xs.stacksz
+    override protected def head(xs: JitHandlerStack): ElemTy = xs.check
 
     override protected def tail(xs: JitHandlerStack): JitHandlerStack = xs.tail
     // $COVERAGE-ON$

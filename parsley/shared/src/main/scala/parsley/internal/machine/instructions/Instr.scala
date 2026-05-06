@@ -5,7 +5,7 @@
  */
 package parsley.internal.machine.instructions
 
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 
 import org.typelevel.scalaccompat.annotation.unused
 
@@ -17,14 +17,35 @@ private [internal] abstract class Instr {
 
     def labels: Seq[Int] = Seq.empty
 
-    def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers)
-    def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers)
-    def jumpPaths(@unused handlers: List[Int]): Seq[(List[Int], Int)] = Seq.empty
+    def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers))
+    def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers))
+    def jumpPaths(@unused stacksz: Int, @unused handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq.empty
 
-    final def allPaths(handlers: List[Int], pos: Int): Seq[(List[Int], Int)] =
-        fallThroughPath(handlers).map(_ -> (pos + 1)).toSeq ++
-            failPath(handlers).map(newHandlers => newHandlers -> newHandlers.head).toSeq ++
-            jumpPaths(handlers)
+    final def allPaths(stacksz: Int, handlers: List[HandlerInfo], pos: Int): Seq[(Int, StackInfo)] =
+        fallThroughPath(stacksz, handlers).map((pos + 1) -> _).toSeq ++
+            failPath(stacksz, handlers).map { newStack =>
+                val activeHandler = newStack.handlers.head
+                activeHandler.pc -> StackInfo(activeHandler.stacksz, newStack.handlers)
+            }.toSeq ++
+            jumpPaths(stacksz, handlers)
+}
+
+private [internal] case class StackInfo(stacksz: Int, handlers: List[HandlerInfo])
+
+private [internal] case class HandlerInfo(pc: Int, stacksz: Int)
+
+private [internal] trait SpecializedInstr {
+    this: Instr =>
+    
+    def apply(ctx: InterpreterContext, pc: Int): Int
+
+    final override def apply(ctx: Context, pc: Int): Int = {
+        ctx match {
+            case ctx: InterpreterContext => 
+                apply(ctx, pc)
+            case _ => throw new IllegalArgumentException(s"$this needs to be specialized for context type ${ctx.getClass.getName}")
+        }
+    }
 }
 
 private [internal] abstract class InstrWithLabel extends Instr {
@@ -48,8 +69,10 @@ private [internal] final class Label(val i: Int) extends Instr {
 
 private [internal] trait RefailInstr {
     this: Instr =>
+    
+    def failStacksz(stacksz: Int): Int = stacksz
 
-    final override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    final override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    final override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    final override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(failStacksz(stacksz), handlers.tail))
 }

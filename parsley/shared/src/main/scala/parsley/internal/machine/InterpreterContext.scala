@@ -15,6 +15,8 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
                                           input: String,
                                           numRegs: Int,
                                           sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
+    /** This is the operand stack, where results go to live */
+    private[machine] val stack: ArrayStack[Any] = new ArrayStack()
     private [machine] var handlers: InterpreterHandlerStack = Stack.empty
     /** Current offset into program instruction buffer */
     private[machine] var pc: Int = 0
@@ -179,6 +181,18 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
             if (diffstack > 0) stack.drop(diffstack)
             handler.pc
         }
+    }
+
+    private[machine] def push(x: Any) = {
+        stack.push(x)
+    }
+
+    private[machine] def unsafePush(x: Any) = {
+        stack.upush(x)
+    }
+
+    private[machine] def exchange(x: Any) = {
+        stack.exchange(x)
     }
 
     override private[machine] def pushHandler(label: Int): Unit = {

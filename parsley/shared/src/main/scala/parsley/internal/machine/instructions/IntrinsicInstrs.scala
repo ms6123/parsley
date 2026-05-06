@@ -8,45 +8,64 @@ package parsley.internal.machine.instructions
 import scala.annotation.tailrec
 
 import parsley.XAssert.*
+
 import parsley.errors
 import parsley.token.errors.LabelConfig
 
 import parsley.internal.errors.{EndOfInput, ExpectDesc, ExpectItem}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
 
-private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val y = ctx.stack.upop()
         ctx.exchange(f(ctx.stack.upeek, y))
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 2)
+    def apply(x: Any, y: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        f(x, y)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "Lift2(f)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Lift2 {
     def apply[A, B, C](f: (A, B) => C): Lift2 = new Lift2(f.asInstanceOf[(Any, Any) => Any])
 }
 
-private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val z = ctx.stack.upop()
         val y = ctx.stack.upop()
         ctx.exchange(f(ctx.stack.upeek, y, z))
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 3)
+    def apply(x: Any, y: Any, z: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        f(x, y, z)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "Lift3(f)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 2, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Lift3 {
     def apply[A, B, C, D](f: (A, B, C) => D): Lift3 = new Lift3(f.asInstanceOf[(Any, Any, Any) => Any])
@@ -142,9 +161,9 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
     // $COVERAGE-ON$
 }
 
-private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[ExpectDesc]) extends Instr {
+private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
     def this(f: Int => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         lazy val hc = ctx.peekChar(0)
         lazy val h = hc.toInt
@@ -166,27 +185,63 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
     // $COVERAGE-OFF$
     override def toString: String = "UniSat(?(_))"
     // $COVERAGE-ON$
+    
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        lazy val hc = ctx.peekChar(0)
+        lazy val h = hc.toInt
+        lazy val l = ctx.peekChar(1)
+        lazy val c = Character.toCodePoint(hc, l)
+        if (ctx.moreInput(2) && hc.isHighSurrogate && Character.isSurrogatePair(hc, l) && f(c)) {
+            ctx.fastConsumeSupplementaryChar()
+            c
+        }
+        else if (ctx.moreInput && f(h)) {
+            ctx.updatePos(hc)
+            ctx.offset += 1
+            h
+        }
+        else {
+            ctx.expectedFail(expected, unexpectedWidth = 1)
+            null
+        }
+    }
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+    
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 
-private [internal] final class If(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class If(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.stack.pop[Boolean]()) label
         else pc + 1
     }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(condition: Any, ctx: Context, pc: Int): Int = {
+        ensureRegularInstruction(ctx)
+        if (condition.asInstanceOf[Boolean]) label
+        else pc + 1
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"If(true: $label)"
     // $COVERAGE-ON$
 
     override def copy: Instr = If(label)
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] final class Case(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final case class Case(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.peek[Either[_, _]] match {
             case Left(x)  =>
@@ -203,9 +258,9 @@ private [internal] final class Case(var label: Int) extends InstrWithLabel {
 
     override def copy: Instr = Case(label)
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers -> label)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers))
 }
 
 private [internal] object NegLookFail extends Instr with RefailInstr {
@@ -240,9 +295,9 @@ private [internal] object NegLookGood extends Instr {
     override def toString: String = "NegLookGood"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] object Eof extends Instr {
@@ -267,26 +322,36 @@ private [internal] final class Modify(reg: Int, f: Any => Any) extends Instr {
     override def toString: String = s"Modify($reg, f)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Modify {
     def apply[S](reg: Int, f: S => S): Modify = new Modify(reg, f.asInstanceOf[Any => Any])
 }
 
-private [internal] final class SwapAndPut(reg: Int) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class SwapAndPut(reg: Int) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, ctx.stack.peekAndExchange(ctx.stack.upop()))
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 2)
+    def apply(x: Any, y: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.writeReg(reg, x)
+        y
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"SwapAndPut(r$reg)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [instructions] abstract class FilterLike extends Instr {
+private [instructions] abstract class FilterLike[+A] extends Instr with SpecializedInstr {
     var good: Int
     var bad: Int
 
@@ -296,35 +361,53 @@ private [instructions] abstract class FilterLike extends Instr {
         this
     }
 
-    final def carryOn(ctx: Context): Int = {
+    final def carryOn(ctx: Context): Unit = {
         ctx.states = ctx.states.tail
         ctx.popHandler()
-        good
     }
 
-    final def fail(ctx: Context, pc: Int, x: Any): Int = {
+    final def fail(ctx: Context, x: Any): FilterError[A] = {
         ctx.replaceHandler(bad)
-        ctx.exchange((x, ctx.offset - ctx.states.offset))
-        pc + 1
+        FilterError(x.asInstanceOf[A], ctx.offset - ctx.states.offset)
     }
 
     final override def labels: Seq[Int] = Seq(good, bad)
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(bad :: handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(bad, stacksz - 1) :: handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] = Seq(handlers.tail -> good)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(good -> StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {
+private final case class FilterError[+A](_1: A, _2: Int) extends Product2[A, Int]
+
+private [internal] final class Filter[+A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike[A] {
     private [this] val pred = _pred.asInstanceOf[Any => Boolean]
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
-        if (pred(x)) carryOn(ctx)
-        else fail(ctx, pc, x)
+        if (pred(x)) {
+            carryOn(ctx)
+            good
+        }
+        else {
+            ctx.exchange(fail(ctx, x))
+            pc + 1
+        }
+    }
+    
+    @JitImpl(consumeOperands = 1, fallthroughMarker = classOf[FilterError[?]])
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        if (pred(x)) {
+            carryOn(ctx)
+            x
+        }
+        else {
+            fail(ctx, x)
+        }
     }
 
     // $COVERAGE-OFF$
@@ -337,7 +420,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
 private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: Int, var bad: Int) extends FilterLike {
     private [this] val pred = _pred.asInstanceOf[Any => Option[B]]
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val opt = pred(x)
@@ -345,8 +428,25 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
         if (opt.isDefined) {
             ctx.stack.exchange(opt.get)
             carryOn(ctx)
+            good
         }
-        else fail(ctx, pc, x)
+        else {
+            ctx.exchange(fail(ctx, x))
+            pc + 1
+        }
+    }
+
+    @JitImpl(consumeOperands = 1, fallthroughMarker = classOf[FilterError[?]])
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        val opt = pred(x)
+        if (opt.isDefined) {
+            carryOn(ctx)
+            opt.get
+        }
+        else {
+            fail(ctx, x)
+        }
     }
 
     // $COVERAGE-OFF$
@@ -356,10 +456,10 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
     override def copy: Instr = MapFilter(pred, good, bad)
 }
 
-private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr {
+private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr with SpecializedInstr {
     private [this] val pred = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val state = ctx.states
@@ -373,20 +473,36 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
                 ctx.fail(err.withReason(reason))
         }
     }
+    
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        val state = ctx.states
+        ctx.states = state.tail
+        ctx.popHandler()
+        pred.applyOrElse(x, FilterPartial.orNull) match {
+            case null => x
+            case (unex, reason) =>
+                val caretWidth = ctx.offset - state.offset
+                val err = unex.makeError(state.offset, state.line, state.col, caretWidth)
+                ctx.fail(err.withReason(reason))
+                null
+        }
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = s"FilterPartialVanilla(?)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq[String], B]) extends Instr {
+private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq[String], B]) extends Instr with SpecializedInstr {
     private [this] val pred = f.asInstanceOf[Any => Either[Seq[String], Any]]
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val x = ctx.stack.upeek
         val state = ctx.states
@@ -401,14 +517,30 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
                 ctx.fail(new ClassicFancyError(state.offset, state.line, state.col, new RigidCaret(caretWidth), msgs*))
         }
     }
+    
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        val state = ctx.states
+        ctx.states = state.tail
+        ctx.popHandler()
+        pred(x) match {
+            case Right(y) =>
+                y
+            case Left(msgs) =>
+                val caretWidth = ctx.offset - state.offset
+                ctx.fail(new ClassicFancyError(state.offset, state.line, state.col, new RigidCaret(caretWidth), msgs*))
+                null
+        }
+    }
 
     // $COVERAGE-OFF$
     override def toString: String = s"FilterPartialSpecialized(?)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
 private [instructions] object FilterPartial {

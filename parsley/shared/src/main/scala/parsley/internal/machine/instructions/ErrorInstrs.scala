@@ -6,7 +6,7 @@
 package parsley.internal.machine.instructions
 
 import parsley.internal.errors.{CaretWidth, RigidCaret, UnexpectDesc}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{DefuncError, EmptyError}
 
@@ -24,9 +24,9 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
     override def toString: String = s"RelabelHints($labels)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) extends Instr with RefailInstr {
@@ -56,9 +56,9 @@ private [internal] object HideHints extends Instr {
     override def toString: String = "HideHints"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 // FIXME: Gigaparsec points out the hints aren't being used here, I believe they should be!
@@ -87,9 +87,9 @@ private [internal] object ErrorToHints extends Instr {
     override def toString: String = "ErrorToHints"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
@@ -186,7 +186,7 @@ private [internal] final class Fail(width: CaretWidth, msgs: String*) extends In
     override def toString: String = s"Fail(${msgs.mkString(", ")})"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] final class Unexpected(msg: String, width: CaretWidth) extends Instr {
@@ -199,14 +199,25 @@ private [internal] final class Unexpected(msg: String, width: CaretWidth) extend
     override def toString: String = s"Unexpected($msg)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
-        val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
+        val Product2(x, caretWidth) = ctx.stack.pop[Product2[A, Int]]()
+        val unex = gen.unexpected(x)
+        val reason = gen.reason(x)
+        val err = unex.makeError(ctx.offset, ctx.line, ctx.col, gen.adjustWidth(x, caretWidth))
+        ctx.fail(err.withReason(reason))
+    }
+    
+    @JitImpl(consumeOperands = 1)
+    def apply(info: Any, ctx: Context): Unit = {
+        ensureRegularInstruction(ctx)
+        // stack will have an (A, Int) pair on it
+        val Product2(x, caretWidth) = info.asInstanceOf[Product2[A, Int]]
         val unex = gen.unexpected(x)
         val reason = gen.reason(x)
         val err = unex.makeError(ctx.offset, ctx.line, ctx.col, gen.adjustWidth(x, caretWidth))
@@ -217,14 +228,22 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
     override def toString: String = "VanillaGen"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] final class SpecializedGen[A](gen: parsley.errors.SpecializedGen[A]) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class SpecializedGen[A](gen: parsley.errors.SpecializedGen[A]) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
-        val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
+        val Product2(x, caretWidth) = ctx.stack.pop[Product2[A, Int]]()
+        ctx.failWithMessage(new RigidCaret(gen.adjustWidth(x, caretWidth)), gen.messages(x)*)
+    }
+    
+    @JitImpl(consumeOperands = 1)
+    def apply(info: Any, ctx: Context): Unit = {
+        val Product2(x, caretWidth) = info.asInstanceOf[Product2[A, Int]]
         ctx.failWithMessage(new RigidCaret(gen.adjustWidth(x, caretWidth)), gen.messages(x)*)
     }
 
@@ -232,5 +251,7 @@ private [internal] final class SpecializedGen[A](gen: parsley.errors.Specialized
     override def toString: String = "SpecializedGen"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 }

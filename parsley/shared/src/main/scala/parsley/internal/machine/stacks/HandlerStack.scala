@@ -5,10 +5,7 @@
  */
 package parsley.internal.machine.stacks
 
-import parsley.internal.machine.errors.DefuncHints
-
 private [machine] abstract class HandlerStack {
-    def stacksz: Int
     def check: Int
     def check_=(v: Int): Unit
 }

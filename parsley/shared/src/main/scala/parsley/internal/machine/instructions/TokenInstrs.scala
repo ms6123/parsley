@@ -12,7 +12,7 @@ import parsley.token.descriptions.SpaceDesc
 import parsley.token.errors.ErrorConfig
 
 import parsley.internal.errors.{ExpectDesc, ExpectItem, RigidCaret, UnexpectDesc}
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 
 private [instructions] abstract class CommentLexer extends Instr {
@@ -207,40 +207,63 @@ private [internal] final class TokenSkipComments private (
 }
 
 private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal: String => String)
-                                               (start: Char => Boolean, letter: Char => Boolean, illegal: String => Boolean) extends Instr {
+                                               (start: Char => Boolean, letter: Char => Boolean, illegal: String => Boolean) extends Instr with SpecializedInstr {
     private [this] final val expected = Some(new ExpectDesc(name))
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && start(ctx.peekChar)) {
             val initialOffset = ctx.offset
             ctx.offset += 1
-            restOfToken(ctx, pc, initialOffset)
+            restOfToken(ctx, initialOffset) match {
+                case null => ctx.handlers.pc
+                case tok =>
+                    ctx.push(tok)
+                    pc + 1
+            }
         }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
-
-    private def ensureLegal(ctx: Context, pc: Int, tok: String): Int = {
-        if (illegal(tok)) {
-            ctx.offset -= tok.length
-            ctx.unexpectedFail(expected = expected, unexpected = new UnexpectDesc(unexpectedIllegal(tok), new RigidCaret(tok.length)))
+    
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        if (ctx.moreInput && start(ctx.peekChar)) {
+            val initialOffset = ctx.offset
+            ctx.offset += 1
+            restOfToken(ctx, initialOffset)
         }
         else {
-            ctx.col += tok.length
-            ctx.push(tok)
-            pc + 1
+            ctx.expectedFail(expected, unexpectedWidth = 1)
+            null
         }
     }
 
-    @tailrec private def restOfToken(ctx: Context, pc: Int, initialOffset: Int): Int = {
+    private def ensureLegal(ctx: Context, tok: String): String | Null = {
+        if (illegal(tok)) {
+            ctx.offset -= tok.length
+            ctx.unexpectedFail(expected = expected, unexpected = new UnexpectDesc(unexpectedIllegal(tok), new RigidCaret(tok.length)))
+            null
+        }
+        else {
+            ctx.col += tok.length
+            tok
+        }
+    }
+
+    @tailrec private def restOfToken(ctx: Context, initialOffset: Int): String | Null = {
         if (ctx.moreInput && letter(ctx.peekChar)) {
             ctx.offset += 1
-            restOfToken(ctx, pc, initialOffset)
+            restOfToken(ctx, initialOffset)
         }
-        else ensureLegal(ctx, pc, ctx.input.substring(initialOffset, ctx.offset))
+        else ensureLegal(ctx, ctx.input.substring(initialOffset, ctx.offset))
     }
 
     // $COVERAGE-OFF$
     override def toString: String = s"TokenNonSpecific($name)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }

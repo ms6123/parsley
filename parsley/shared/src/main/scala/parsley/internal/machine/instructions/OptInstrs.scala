@@ -12,29 +12,36 @@ import parsley.XCompat.*
 import parsley.token.errors.LabelConfig
 
 import parsley.internal.errors.ExpectItem
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyHints, ExpectedError}
 import parsley.internal.machine.stacks.ErrorStack
 
-private [internal] final class Lift1(f: Any => Any) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Lift1(f: Any => Any) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.exchange(f(ctx.stack.upeek))
         pc + 1
     }
+    
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        f(x)
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "Perform(?)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 private [internal] object Lift1 {
     def apply[A, B](f: A => B): Lift1 = new Lift1(f.asInstanceOf[Any => Any])
 }
 
-private [internal] final class Exchange[A](private [Exchange] val x: A) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Exchange[A](private [Exchange] val x: A) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.exchange(x)
         pc + 1
@@ -43,12 +50,12 @@ private [internal] final class Exchange[A](private [Exchange] val x: A) extends 
     override def toString: String = s"Ex($x)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr {
+private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr with SpecializedInstr {
     private [this] final val expected = _expected.asExpectDescs
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
@@ -57,13 +64,29 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
         }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        if (ctx.moreInput && f(ctx.peekChar)) {
+            ctx.consumeChar()
+            x
+        }
+        else {
+            ctx.expectedFail(expected, unexpectedWidth = 1)
+            null
+        }
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = s"SatEx(?, $x)"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 
-private [internal] final class RecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class RecoverWith[A](x: A) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.catchNoConsumed(ctx.handlers.check) {
@@ -77,13 +100,13 @@ private [internal] final class RecoverWith[A](x: A) extends Instr {
     override def toString: String = s"RecoverWith($x)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints() // This must be before adding the error to hints
@@ -97,9 +120,9 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr {
     override def toString: String = s"AlwaysRecoverWith($x)"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] sealed abstract class JumpTablePreds {
@@ -222,13 +245,13 @@ private [internal] final class JumpTable
 
     override def labels: Seq[Int] = defaultPreamble +: defaultMergeHandler +: individualMergeHandler +: default +: jumpTable.labels
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def jumpPaths(handlers: List[Int]): Seq[(List[Int], Int)] =
-        ((defaultMergeHandler :: handlers) -> default) +:
-            jumpTable.labels.map((individualMergeHandler :: defaultPreamble :: handlers) -> _)
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] =
+        (default -> StackInfo(stacksz, HandlerInfo(defaultMergeHandler, stacksz) :: handlers)) +:
+            jumpTable.labels.map(_ -> StackInfo(stacksz, HandlerInfo(individualMergeHandler, stacksz) :: HandlerInfo(defaultPreamble, stacksz) :: handlers))
 }
 private [instructions] object JumpTable {
     private val checkDefined = (_: Any) => null

@@ -8,12 +8,12 @@ package parsley.internal.machine.instructions
 import parsley.token.errors.LabelConfig
 
 import parsley.internal.errors.ExpectDesc
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 
-private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr {
+private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
     def this(f: Char => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.push(ctx.consumeChar())
@@ -21,9 +21,25 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
         }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        if (ctx.moreInput && f(ctx.peekChar)) {
+            ctx.consumeChar()
+        }
+        else {
+            ctx.expectedFail(expected, unexpectedWidth = 1)
+            null
+        }
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "Sat(?(_))"
     // $COVERAGE-ON$
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 
 private [internal] object RestoreAndFail extends Instr with RefailInstr {
@@ -51,9 +67,9 @@ private [internal] object RestoreHintsAndState extends Instr {
     override def toString: String = "RestoreHintsAndState"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [internal] object PopStateAndFail extends Instr with RefailInstr {
@@ -82,86 +98,140 @@ private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailI
 }
 
 // Position Extractors
-private [internal] object Line extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Line extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(ctx.line)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.line
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "Line"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object Col extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Col extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(ctx.col)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.col
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "Col"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object Offset extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Offset extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(ctx.offset)
         pc + 1
     }
+    
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.offset
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "Offset"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 // Register-Manipulators
-private [internal] final class Get(reg: Int) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Get(reg: Int) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(ctx.regs(reg))
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        ctx.regs(reg)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Get(r$reg)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class Put(reg: Int) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Put(reg: Int) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, ctx.stack.upop())
         pc + 1
     }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Unit = {
+        ensureRegularInstruction(ctx)
+        ctx.writeReg(reg, x)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Put(r$reg)"
     // $COVERAGE-ON$
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class PutAndFail(reg: Int) extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class PutAndFail(reg: Int) extends Instr with SpecializedInstr with RefailInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.writeReg(reg, ctx.stack.upeek)
         ctx.fail()
     }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(x: Any, ctx: Context): Unit = {
+        ensureHandlerInstruction(ctx)
+        ctx.writeReg(reg, x)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"PutAndFail(r$reg)"
     // $COVERAGE-ON$
+
+    override def failStacksz(stacksz: Int): Int = stacksz - 1
 }
 
-private [internal] object Span extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Span extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         // this uses the state stack because post #132 we will need a save point to obtain the start of the input
         ensureRegularInstruction(ctx)
         val startOffset = ctx.states.offset
@@ -170,13 +240,24 @@ private [internal] object Span extends Instr {
         ctx.push(ctx.input.substring(startOffset, ctx.offset))
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        // this uses the state stack because post #132 we will need a save point to obtain the start of the input
+        ensureRegularInstruction(ctx)
+        val startOffset = ctx.states.offset
+        ctx.states = ctx.states.tail
+        ctx.popHandler()
+        ctx.input.substring(startOffset, ctx.offset)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "Span"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(handlers: List[Int]): Option[List[Int]] = Some(handlers.tail)
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers.tail))
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
 private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
@@ -187,5 +268,5 @@ private [parsley] final class ExpandRefs(newSz: Int) extends Instr {
         pc + 1
     }
 
-    override def failPath(handlers: List[Int]): Option[List[Int]] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
