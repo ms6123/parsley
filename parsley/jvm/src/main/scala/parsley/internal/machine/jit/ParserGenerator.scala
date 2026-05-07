@@ -39,7 +39,6 @@ private object Methods {
 private[jit] class ParserGenerator(private val functions: Array[ParserFunction]) {
     private val ctx = ClassGenContext()
     private val functionsById = functions.view.map(it => it.id -> it).toMap
-    private val canFailCache = mutable.Map.empty[Int, Boolean]
 
     def generate(): MethodHandle = {
         val classes = functions.map(generate)
@@ -174,7 +173,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     jumpToSuccessors(pos, successorLabels.result())
                 }
 
-                def jumpUsingReturnValue(info: JitImpl, returnType: Class[?]): Unit = {
+                def jumpUsingReturnValue(returnType: Class[?], fallthroughMarker: Class[?] = null): Unit = {
                     if (returnType eq classOf[Int]) {
                         jumpToAllSuccessors()
                         return
@@ -208,12 +207,12 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         case t if t == classOf[Any] =>
                             if (goodPaths.sizeIs <= 1) {
                                 goodPaths
-                            } else if (info.fallthroughMarker ne classOf[Nothing]) {
+                            } else if (fallthroughMarker ne classOf[Nothing]) {
                                 val Successor(fallThroughPc, fallThroughActions) = instrInfo.fallThroughPath.get
                                 require(fallThroughActions.isEmpty)
 
                                 vis.visitInsn(Opcodes.DUP)
-                                vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(info.fallthroughMarker))
+                                vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(fallthroughMarker))
                                 vis.visitJumpInsn(Opcodes.IFNE, labelForPos(fallThroughPc))
 
                                 instrInfo.jumpPaths
@@ -269,27 +268,14 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         }
                     }
 
-                    jumpUsingReturnValue(info, method.getReturnType)
+                    jumpUsingReturnValue(method.getReturnType, info.fallthroughMarker)
                 }
 
                 instr match {
                     case Call(id, producesResults) =>
-                        require(instrInfo.goodPaths == Seq(Successor(pos + 1, Seq())))
-
                         loadContext()
                         vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, implDesc(producesResults), false)
-                        if (canFail(id)) {
-                            val Successor(badPc, badAfterActions) = instrInfo.badPath.get
-                            loadContext()
-                            vis.callMethod(Methods.Context.IS_GOOD)
-                            if (badAfterActions.isEmpty) {
-                                vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
-                            } else {
-                                vis.visitJumpInsn(Opcodes.IFNE, labelForPos(pos + 1))
-                                performActions(instr, badAfterActions)
-                                vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
-                            }
-                        }
+                        jumpUsingReturnValue(classOf[Unit])
                     case Case(label) =>
                         val rightLabel = Label()
 
@@ -350,22 +336,6 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
         }
 
     private def implDesc(producesResults: Boolean) = if (producesResults) IMPL_DESC else VOID_IMPL_DESC
-
-    private def canFail(id: Int, visited: Set[Int] = Set.empty): Boolean = if (canFailCache.contains(id)) canFailCache(id) else {
-        val result = canFailImpl(id, visited)
-        canFailCache(id) = result
-        result
-    }
-
-    private def canFailImpl(id: Int, visited: Set[Int] = Set.empty): Boolean = {
-        val func = functionsById(id)
-        func.instrs.view.zip(func.info.instrInfos).exists { case (instr, instrInfo) =>
-            instr match {
-                case Call(id, _) => !visited.contains(id) && canFail(id, visited.incl(id))
-                case _ => instrInfo.badPath.isDefined
-            }
-        }
-    }
 
     private def className(id: Int) = s"parsley/internal/machine/jit/gen/parsers/Parser$id"
 }

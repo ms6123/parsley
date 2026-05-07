@@ -206,22 +206,17 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
-        val Product2(x, caretWidth) = ctx.stack.pop[Product2[A, Int]]()
+        val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
         val unex = gen.unexpected(x)
         val reason = gen.reason(x)
         val err = unex.makeError(ctx.offset, ctx.line, ctx.col, gen.adjustWidth(x, caretWidth))
         ctx.fail(err.withReason(reason))
     }
     
-    @JitImpl(consumeOperands = 1)
-    def apply(info: Any, ctx: Context): Unit = {
+    @JitImpl
+    def apply(ctx: Context): Unit = {
         ensureRegularInstruction(ctx)
-        // stack will have an (A, Int) pair on it
-        val Product2(x, caretWidth) = info.asInstanceOf[Product2[A, Int]]
-        val unex = gen.unexpected(x)
-        val reason = gen.reason(x)
-        val err = unex.makeError(ctx.offset, ctx.line, ctx.col, gen.adjustWidth(x, caretWidth))
-        ctx.fail(err.withReason(reason))
+        ctx.good = false
     }
 
     // $COVERAGE-OFF$
@@ -230,21 +225,21 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers))
 }
 
 private [internal] final class SpecializedGen[A](gen: parsley.errors.SpecializedGen[A]) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // stack will have an (A, Int) pair on it
-        val Product2(x, caretWidth) = ctx.stack.pop[Product2[A, Int]]()
+        val (x, caretWidth) = ctx.stack.pop[(A, Int)]()
         ctx.failWithMessage(new RigidCaret(gen.adjustWidth(x, caretWidth)), gen.messages(x)*)
     }
     
-    @JitImpl(consumeOperands = 1)
-    def apply(info: Any, ctx: Context): Unit = {
-        val Product2(x, caretWidth) = info.asInstanceOf[Product2[A, Int]]
-        ctx.failWithMessage(new RigidCaret(gen.adjustWidth(x, caretWidth)), gen.messages(x)*)
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ensureRegularInstruction(ctx)
+        ctx.good = false
     }
 
     // $COVERAGE-OFF$
@@ -253,5 +248,5 @@ private [internal] final class SpecializedGen[A](gen: parsley.errors.Specialized
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers))
 }

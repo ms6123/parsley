@@ -11,7 +11,7 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface JitImpl {
     int consumeOperands() default 0;
-    
+
     Class<?> fallthroughMarker() default Nothing$.class;
     
     Action[] afterActions() default {};

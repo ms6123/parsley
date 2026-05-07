@@ -43,9 +43,9 @@ object Optimizer {
 
         val producesResults = instrs.view.collect {
             case Call(id, producesResults) => id -> producesResults
-        }.toMap
+        }.concat(Seq(0 -> true)).toMap
 
-        val functions = functionRanges.map { funcRange =>
+        val functions = functionRanges.view.map { funcRange =>
             for (i <- funcRange) {
                 instrs(i) match {
                     case _: Call =>
@@ -71,10 +71,14 @@ object Optimizer {
 
             tailrecOptimization(funcRange, funcInstrs)
 
-            ParserFunction(funcRange.start, funcInstrs.toArray, producesResults.applyOrElse(funcRange.start, _ => true), determineFunctionInfo(funcInstrs))
-        }
+            funcRange.start -> funcInstrs.toArray
+        }.toMap
 
-        val startMethod = ParserGenerator(functions.toArray).generate()
+        val analysis = analyzeAll(functions)
+
+        val startMethod = ParserGenerator(
+            functionRanges.view.map(_.start).map(id => ParserFunction(id, functions(id), producesResults(id), analysis(id))).toArray
+        ).generate()
 
         new ParseRunner {
             override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
@@ -104,22 +108,95 @@ object Optimizer {
         }
     }
 
-    private def determineFunctionInfo(instrs: mutable.ArrayBuffer[Instr]): FunctionInfo = {
+    private def analyzeAll(funcById: Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
+        for (instrs <- funcById.values; instr <- instrs) {
+            instr match {
+                case _: (ManyUntil | Case) =>
+                case instr: SpecializedInstr => InstructionImpls.getImpl(instr)
+                case _ =>
+            }
+        }
+
+        val callers = {
+            val m = scala.collection.mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
+            for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs) {
+                m(id) = m(id) + callerId
+            }
+            m.toMap.withDefaultValue(Set.empty)
+        }
+
+        val state = mutable.Map.from(funcById.keySet.view.map(_ -> (false, false)))
+        val inQueue = mutable.Set.from(funcById.keySet)
+        val queue = mutable.Queue.from(funcById.keySet)
+
+        while (queue.nonEmpty) {
+            val id = queue.dequeue()
+            inQueue -= id
+            val next = analyze(funcById(id), state).outcomes
+            if (next != state(id)) {
+                state(id) = next
+                for (caller <- callers(id) if !inQueue(caller)) {
+                    inQueue += caller
+                    queue.enqueue(caller)
+                }
+            }
+        }
+
+        funcById.view.map { case (id, instrs) =>
+            val stacks = analyze(instrs, state).stacks
+            val instrInfos = instrs.view.zipWithIndex.map { case (instr, pos) =>
+                val (canSucceed, canFail) = instr match {
+                    case Call(callId, _) => state(callId)
+                    case _ => (true, true)
+                }
+                InstrInfo(instr, pos, stacks(pos), canSucceed, canFail)
+            }.toArray
+            id -> new FunctionInfo(instrInfos)
+        }.toMap
+    }
+
+    private def analyze(instrs: Array[Instr], knownResults: Int => (Boolean, Boolean)): AnalysisResult = {
         val visited = Array.fill(instrs.length)(mutable.Set.empty[StackInfo])
         val toVisit = mutable.Queue(0 -> StackInfo(0, List(HandlerInfo(-1, 0))))
 
         visited(0) += StackInfo(0, List(HandlerInfo(-1, 0)))
 
+        var canSucceed = false
+        var canFail = false
+
         while (toVisit.nonEmpty) {
             val (pos, StackInfo(stacksz, handlers)) = toVisit.dequeue()
+            val instr = instrs(pos)
 
-            for ((nextPos, nextStack) <- instrs(pos).allPaths(stacksz, handlers, pos)) {
-                if (nextPos != -1 && visited(nextPos).add(nextStack)) {
+            val paths = instr match {
+                case Return | Halt =>
+                    canSucceed = true
+                    Seq()
+                case Call(id, _) =>
+                    knownResults(id) match {
+                        case (true, true) => instr.allPaths(stacksz, handlers, pos)
+                        case (true, false) => instr.goodPaths(stacksz, handlers, pos)
+                        case (false, true) => instr.badPaths(stacksz, handlers)
+                        case (false, false) => Seq()
+                    }
+                case _ =>
+                    instr.allPaths(stacksz, handlers, pos)
+            }
+
+            for ((nextPos, nextStack) <- paths) {
+                if (nextPos == -1) {
+                    canFail = true
+                } else if (visited(nextPos).add(nextStack)) {
+                    require(visited(nextPos).size == 1, s"Stack mismatch at $nextPos: ${visited(nextPos)}")
                     toVisit.enqueue(nextPos -> nextStack)
                 }
             }
         }
 
-        FunctionInfo(instrs.toArray, visited.map(it => if (it.sizeIs > 1) ??? else it.headOption))
+        AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
     }
+}
+
+private class AnalysisResult(val canSucceed: Boolean, val canFail: Boolean, val stacks: Array[Option[StackInfo]]) {
+    def outcomes: (Boolean, Boolean) = (canSucceed, canFail)
 }

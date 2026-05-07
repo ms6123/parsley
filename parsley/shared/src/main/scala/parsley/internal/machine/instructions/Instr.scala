@@ -22,12 +22,17 @@ private [internal] abstract class Instr {
     def jumpPaths(@unused stacksz: Int, @unused handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq.empty
 
     final def allPaths(stacksz: Int, handlers: List[HandlerInfo], pos: Int): Seq[(Int, StackInfo)] =
+        goodPaths(stacksz, handlers, pos) ++ badPaths(stacksz, handlers)
+        
+    final def goodPaths(stacksz: Int, handlers: List[HandlerInfo], pos: Int): Seq[(Int, StackInfo)] =
         fallThroughPath(stacksz, handlers).map((pos + 1) -> _).toSeq ++
-            failPath(stacksz, handlers).map { newStack =>
-                val activeHandler = newStack.handlers.head
-                activeHandler.pc -> StackInfo(activeHandler.stacksz, newStack.handlers)
-            }.toSeq ++
             jumpPaths(stacksz, handlers)
+        
+    final def badPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] =
+        failPath(stacksz, handlers).map { newStack =>
+            val activeHandler = newStack.handlers.head
+            activeHandler.pc -> StackInfo(math.min(activeHandler.stacksz, newStack.stacksz), newStack.handlers)
+        }.toSeq
 }
 
 private [internal] case class StackInfo(stacksz: Int, handlers: List[HandlerInfo])
@@ -69,7 +74,7 @@ private [internal] final class Label(val i: Int) extends Instr {
 
 private [internal] trait RefailInstr {
     this: Instr =>
-    
+
     def failStacksz(stacksz: Int): Int = stacksz
 
     final override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None

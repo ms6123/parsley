@@ -23,13 +23,13 @@ private [internal] final class Lift1(f: Any => Any) extends Instr with Specializ
         ctx.exchange(f(ctx.stack.upeek))
         pc + 1
     }
-    
+
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
         ensureRegularInstruction(ctx)
         f(x)
     }
-    
+
     // $COVERAGE-OFF$
     override def toString: String = "Perform(?)"
     // $COVERAGE-ON$
@@ -77,12 +77,14 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
             null
         }
     }
-    
+
     // $COVERAGE-OFF$
     override def toString: String = s"SatEx(?, $x)"
     // $COVERAGE-ON$
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
 
 private [internal] final class RecoverWith[A](x: A) extends Instr with SpecializedInstr {
@@ -116,6 +118,18 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr with Spe
         ctx.push(x)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureHandlerInstruction(ctx)
+        ctx.restoreState()
+        ctx.restoreHints() // This must be before adding the error to hints
+        ctx.popHandler()
+        ctx.addErrorToHintsAndPop()
+        ctx.good = true
+        x
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"AlwaysRecoverWith($x)"
     // $COVERAGE-ON$
