@@ -224,10 +224,26 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     require(possiblePaths.sizeIs <= 1)
                     jumpToSuccessors(pos, possiblePaths.map(it => it -> labelForPos(it.pc)))
                 }
+                
+                def performCustomActions(actions: Array[JitImpl.Action]): Unit = {
+                    for (action <- actions) {
+                        action match {
+                            case JitImpl.Action.PushTrue =>
+                                vis.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;")
+                            case JitImpl.Action.Swap =>
+                                vis.visitInsn(Opcodes.SWAP)
+                            case JitImpl.Action.DupX1 =>
+                                vis.visitInsn(Opcodes.DUP_X1)
+                        }
+                    }
+                }
 
                 def applySpecialized(instr: Instr & SpecializedInstr): Unit = {
                     val (method, info) = InstructionImpls.getImpl(instr)
                     val trailingParams = method.getParameterTypes.drop(info.consumeOperands + 1)
+
+                    performCustomActions(info.beforeActions)
+
                     info.consumeOperands match {
                         case 0 =>
                             vis.loadObject(instr)
@@ -261,12 +277,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                     vis.callMethod(method)
 
-                    for (action <- info.afterActions) {
-                        action match {
-                            case JitImpl.Action.PushTrue =>
-                                vis.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;")
-                        }
-                    }
+                    performCustomActions(info.afterActions)
 
                     jumpUsingReturnValue(method.getReturnType, info.fallthroughMarker)
                 }

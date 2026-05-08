@@ -23,16 +23,21 @@ private [deepembedding] final class Precedence[A] private (prefixAtomChoice: Str
     override protected[backend] def codeGen[M[_, +_]: ContOps, R](producesResults: Boolean)(implicit instrs: StrictParsley.InstrBuffer, state: CodeGenState): M[R,Unit] = {
         val prefixAtomLabel = state.freshLabel()
         val postfixInfixLabel = state.freshLabel()
-        val shuntLabel = state.freshLabel()
+        val endLabel = state.freshLabel()
+        val shuntJumpLabel = state.freshLabel()
+        val shuntHandlerLabel = state.freshLabel()
         instrs += new instructions.Fresh(instructions.ShuntingYardState.empty)
-        instrs += new instructions.PushHandlerAndState(shuntLabel)
+        instrs += new instructions.PushHandlerAndState(shuntHandlerLabel)
         instrs += new instructions.Label(prefixAtomLabel)
         suspend(prefixAtomChoice.codeGen[M, R](producesResults = true)) >> {
-            instrs += new instructions.Jump(shuntLabel)
+            instrs += new instructions.Jump(shuntJumpLabel)
             instrs += new instructions.Label(postfixInfixLabel)
             suspend(postfixInfixChoice.codeGen[M, R](producesResults = true)) |> {
-                instrs += new instructions.Label(shuntLabel)
-                instrs += new instructions.Shunt(prefixAtomLabel, postfixInfixLabel, wraps)
+                instrs += new instructions.Label(shuntJumpLabel)
+                instrs += new instructions.ShuntJump(prefixAtomLabel, postfixInfixLabel, endLabel, wraps)
+                instrs += new instructions.Label(shuntHandlerLabel)
+                instrs += new instructions.ShuntHandler(wraps)
+                instrs += new instructions.Label(endLabel)
                 if (!producesResults) instrs += instructions.Pop
             }
         }

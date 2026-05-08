@@ -14,9 +14,13 @@ public @interface JitImpl {
 
     Class<?> fallthroughMarker() default Nothing$.class;
     
+    Action[] beforeActions() default {};
+    
     Action[] afterActions() default {};
     
     enum Action {
-        PushTrue
+        PushTrue,
+        Swap,
+        DupX1
     }
 }
