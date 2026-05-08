@@ -49,9 +49,34 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         }
     }
 
+    @JitImpl
+    def apply(ctx: Context): Any = {
+        ensureRegularInstruction(ctx)
+        // This could be simplified, but the "fail" branches need to be duplicated...
+        if (ctx.moreInput && ctx.peekChar == '-') {
+            ctx.fastUncheckedConsumeChars(1)
+            neg
+        }
+        else if ((plusPresence ne PlusSignPresence.Illegal) && ctx.moreInput && ctx.peekChar == '+') {
+            ctx.fastUncheckedConsumeChars(1)
+            pos
+        }
+        else if (plusPresence eq PlusSignPresence.Required) {
+            ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
+            null
+        }
+        else {
+            ctx.pushError(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
+            ctx.addErrorToHintsAndPop()
+            pos
+        }
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "TokenSign"
     // $COVERAGE-ON$
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
+    
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz + 1, handlers))
 }
