@@ -367,7 +367,7 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        ctx.catchNoConsumed(ctx.handlers.check) {
+        ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.replaceHandler(label)
             pc + 1
         }

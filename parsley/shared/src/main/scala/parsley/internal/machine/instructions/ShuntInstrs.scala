@@ -239,7 +239,7 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
 private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) extends ShuntInstr(wraps) {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
-        val handlerCheck = ctx.handlers.check
+        val handlerCheck = ctx.handlerCheck
         ctx.popHandler()
         ctx.states = ctx.states.tail
         if (ctx.offset != handlerCheck || ctx.stack.peek[ShuntingYardState].failOnNoConsumed) {
@@ -257,7 +257,7 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
     @JitImpl(consumeOperands = 1)
     def apply(stateIn: Any, ctx: Context): Any = {
         val state = stateIn.asInstanceOf[ShuntingYardState]
-        val handlerCheck = ctx.handlers.check
+        val handlerCheck = ctx.handlerCheck
         ctx.popHandler()
         ctx.states = ctx.states.tail
         if (ctx.offset != handlerCheck || state.failOnNoConsumed) {

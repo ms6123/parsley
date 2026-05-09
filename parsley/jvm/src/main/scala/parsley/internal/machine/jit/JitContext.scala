@@ -9,7 +9,7 @@ import parsley.internal.errors.ExpectItem
 import parsley.internal.machine.Context
 import parsley.internal.machine.errors.DefuncError
 import parsley.internal.machine.instructions.FailMarker
-import parsley.internal.machine.stacks.{HandlerStack, Stack}
+import parsley.internal.machine.stacks.{HandlerStack, IntArrayStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
 
 import parsley.{Failure, Result, Success}
@@ -18,7 +18,7 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
                                     input: String,
                                     numRegs: Int,
                                     sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
-    private[machine] var handlers: JitHandlerStack = Stack.empty
+    private[machine] val handlers = IntArrayStack()
 
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         val result = startMethod.invokeExact(this)
@@ -51,14 +51,18 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     override private [machine] def fail(): Int = -1
 
     override private[machine] def pushHandler(label: Int): Unit = {
-        handlers = new JitHandlerStack(offset, handlers)
+        handlers.push(offset)
     }
 
     override private[machine] def popHandler(): Unit = {
-        handlers = handlers.tail
+        handlers.pop_()
     }
 
     override private[machine] def replaceHandler(label: Int): Unit = ()
+
+    override private[machine] def handlerCheck = handlers.peek
+
+    override private[machine] def handlerCheck_=(v: Int): Unit = handlers.exchange(v)
 
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {

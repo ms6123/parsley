@@ -44,7 +44,7 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        ctx.catchNoConsumed(ctx.handlers.check) {
+        ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.exchange(ctx.stack.peek[mutable.Builder[Any, Any]].result())
@@ -55,7 +55,7 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
     @JitImpl(consumeOperands = 1)
     def apply(builder: Any, ctx: Context): Any = {
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
         if (ctx.offset == check) {
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
@@ -123,7 +123,7 @@ private [internal] object IterativeHandler extends Instr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        ctx.catchNoConsumed(ctx.handlers.check) {
+        ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             pc + 1
@@ -244,7 +244,7 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
 private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
-        ctx.catchNoConsumed(ctx.handlers.check) {
+        ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             val y = ctx.stack.upop()
@@ -255,7 +255,7 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr w
 
     @JitImpl(consumeOperands = 2)
     def apply(rops: Any, y: Any, ctx: Context): Any = {
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
         if (ctx.offset == check) {
             ROps.reduce(rops.asInstanceOf, wrap(y))
@@ -324,26 +324,26 @@ private [instructions] object SepEndBy1Handlers {
 private [internal] object SepEndBy1SepHandler extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
         // p succeeded and sep didn't, so push p and fall-through to the whole handler
         val x = ctx.stack.upop()
         ctx.stack.pop_() // the bool is no longer needed
         val acc = ctx.stack.peek[mutable.Builder[Any, Any]]
         acc += x
-        ctx.handlers.check = check
+        ctx.handlerCheck = check
         ctx.stack.upush(true)
         pc + 1
     }
 
     @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
     def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
 
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
 
-        ctx.handlers.check = check
+        ctx.handlerCheck = check
         builder
     }
 
@@ -359,7 +359,7 @@ private [internal] object SepEndBy1SepHandler extends Instr with SpecializedInst
 private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
         val readP = ctx.stack.pop[Boolean]()
         SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, pc, check, ctx.stack.peek[mutable.Builder[Any, Any]], readP)
@@ -367,7 +367,7 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
 
     @JitImpl(consumeOperands = 2)
     def apply(builder: Any, readP: Any, ctx: Context): Any = {
-        val check = ctx.handlers.check
+        val check = ctx.handlerCheck
         ctx.popHandler()
         if (ctx.offset != check || !readP.asInstanceOf[Boolean]) {
             // Fail

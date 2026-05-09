@@ -32,8 +32,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] var states: StateStack = Stack.empty
     private [machine] def good: Boolean = ???
     private [machine] def good_=(v: Boolean): Unit
-    /** Stack of handlers, which track the call depth, program counter and stack size of error handlers */
-    private [machine] def handlers: HandlerStack
     /** Current line number */
     private [machine] var line: Int = 1
     /** Current column number */
@@ -57,8 +55,12 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def clearHints(): Unit
 
-    private [machine] def updateCheckOffset() = {
-        this.handlers.check = this.offset
+    private[machine] def handlerCheck: Int
+    
+    private [machine] def handlerCheck_=(v: Int): Unit
+
+    private[machine] def updateCheckOffset(): Unit = {
+        this.handlerCheck = this.offset
     }
 
     private [machine] def pretty: String

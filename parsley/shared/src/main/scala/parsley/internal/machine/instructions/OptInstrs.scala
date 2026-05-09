@@ -88,7 +88,7 @@ private [internal] final class RecoverWith[A](x: A) extends Instr with Specializ
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() // This must be before adding the error to hints
-        ctx.catchNoConsumed(ctx.handlers.check) {
+        ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.popHandler()
             ctx.addErrorToHintsAndPop()
             ctx.push(x)

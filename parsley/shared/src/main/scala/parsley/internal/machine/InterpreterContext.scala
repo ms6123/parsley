@@ -87,6 +87,10 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     
     override private [machine] def clearHints(): Unit = hints = EmptyHints
 
+    override private[machine] def handlerCheck = handlers.check
+
+    override private[machine] def handlerCheck_=(v: Int): Unit = handlers.check = v
+
     override private [machine] def pushError(err: =>DefuncError): Unit = errs.push(this.useHints(err))
 
     override private[machine] def popError(): Unit = errs.pop_()

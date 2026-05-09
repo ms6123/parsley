@@ -13,7 +13,7 @@ import parsley.internal.machine.errors.{DefuncError, EmptyError}
 private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        if (ctx.offset == ctx.handlers.check) ctx.replaceHint(labels)
+        if (ctx.offset == ctx.handlerCheck) ctx.replaceHint(labels)
         // COK
         // do nothing
         ctx.mergeHints()
@@ -47,7 +47,7 @@ private [internal] object HideHints extends Instr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // according to old label logic, we do this unconditionally
-        /*if (ctx.offset == ctx.handlers.check)*/ ctx.popHints()
+        /*if (ctx.offset == ctx.handlerCheck)*/ ctx.popHints()
         ctx.mergeHints()
         ctx.popHandler()
         pc + 1
@@ -66,7 +66,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
-        if (ctx.offset == ctx.handlers.check) ctx.hideError()
+        if (ctx.offset == ctx.handlerCheck) ctx.hideError()
         ctx.popHandler()
         ctx.fail()
     }
