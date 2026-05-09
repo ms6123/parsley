@@ -189,7 +189,6 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
 
     @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1))
     def apply(token: Any, state: Any, ctx: Context): Int = {
-        ensureRegularInstruction(ctx)
         ctx.updateCheckOffset()
 
         token.asInstanceOf[ShuntToken].handle(ctx, state.asInstanceOf, this)
@@ -257,7 +256,6 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
 
     @JitImpl(consumeOperands = 1)
     def apply(stateIn: Any, ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         val state = stateIn.asInstanceOf[ShuntingYardState]
         val handlerCheck = ctx.handlers.check
         ctx.popHandler()
@@ -267,7 +265,6 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
             FailMarker
         } else {
             // The end of the expression has been reached
-            ctx.good = true
             produceResult(state)
         }
     }

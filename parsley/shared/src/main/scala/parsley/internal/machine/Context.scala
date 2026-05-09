@@ -30,9 +30,8 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] val inputsz: Int = input.length
     /** State stack consisting of offsets and positions that can be rolled back */
     private [machine] var states: StateStack = Stack.empty
-    /** Current operational status of the machine */
-    private [machine] var good: Boolean = true
-    private [machine] var running: Boolean = true
+    private [machine] def good: Boolean = ???
+    private [machine] def good_=(v: Boolean): Unit
     /** Stack of handlers, which track the call depth, program counter and stack size of error handlers */
     private [machine] def handlers: HandlerStack
     /** Current line number */
@@ -64,21 +63,7 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def pretty: String
 
-    private [machine] def call(at: Int): Int
-
-    private [machine] def ret(): Int
-
-    private [machine] def catchNoConsumed(check: Int)(handler: =>Int): Int = {
-        assert(!good, "catching can only be performed in a handler")
-        if (offset != check) {
-            popHandler()
-            fail()
-        }
-        else {
-            good = true
-            handler
-        }
-    }
+    private [machine] def catchNoConsumed(check: Int)(handler: =>Int): Int
 
     private [machine] def pushError(err: =>DefuncError): Unit
 
@@ -117,18 +102,9 @@ private [parsley] abstract class Context(private[machine] val input: String,
         else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
     }
 
-    private [machine] def fail(error: =>DefuncError): Int = {
-        good = false
-        this.pushError(error)
-        this.fail()
-    }
+    private [machine] def fail(error: =>DefuncError): Int
 
-    protected def failImpl(): Int
-
-    private [machine] def fail(): Int = {
-        assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
-        failImpl()
-    }
+    private [machine] def fail(): Int
     
     private [machine] def peekChar: Char = input.charAt(offset)
     private [machine] def peekChar(lookAhead: Int): Char = input.charAt(offset + lookAhead)
@@ -174,11 +150,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
     }
     private [machine] def writeReg(reg: Int, x: Any): Unit = {
         regs(reg) = x.asInstanceOf[AnyRef]
-    }
-
-    private [machine] def status: Status = {
-        if (running) if (good) Good else Recover
-        else if (good) Finished else Failed
     }
 
     protected implicit val lineBuilder: LineBuilder = new LineBuilder {

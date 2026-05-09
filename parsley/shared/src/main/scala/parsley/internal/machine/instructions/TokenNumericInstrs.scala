@@ -51,7 +51,6 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         // This could be simplified, but the "fail" branches need to be duplicated...
         if (ctx.moreInput && ctx.peekChar == '-') {
             ctx.fastUncheckedConsumeChars(1)
@@ -62,7 +61,6 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
             pos
         }
         else if (plusPresence eq PlusSignPresence.Required) {
-            ctx.good = false
             FailMarker
         }
         else {

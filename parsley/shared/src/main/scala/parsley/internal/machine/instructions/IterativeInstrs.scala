@@ -22,7 +22,6 @@ private [internal] final class ManyJump(var label: Int) extends InstrWithLabel w
 
     @JitImpl(consumeOperands = 2)
     def apply(builder: Any, x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
         ctx.updateCheckOffset()
         builder
@@ -55,12 +54,10 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
 
     @JitImpl(consumeOperands = 1)
     def apply(builder: Any, ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         val check = ctx.handlers.check
         ctx.popHandler()
         if (ctx.offset == check) {
-            ctx.good = true
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
         } else FailMarker
     }
@@ -75,28 +72,21 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
 }
 
 // TODO: Factor these handlers out!
-private [internal] final class SkipMany(var label: Int) extends InstrWithLabel {
+private [internal] final class SkipManyJump(var label: Int) extends InstrWithLabel {
     override def apply(ctx: Context, pc: Int): Int = {
-        if (ctx.good) {
-            ctx.updateCheckOffset()
-            label
-        }
-        // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        else ctx.catchNoConsumed(ctx.handlers.check) {
-            ctx.popHandler()
-            ctx.addErrorToHintsAndPop()
-            pc + 1
-        }
+        ensureRegularInstruction(ctx)
+        ctx.updateCheckOffset()
+        label
     }
     // $COVERAGE-OFF$
-    override def toString: String = s"SkipMany($label)"
+    override def toString: String = s"SkipManyJump($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = SkipMany(label)
+    override def copy: Instr = SkipManyJump(label)
 
-    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers))
 }
@@ -112,7 +102,6 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
 
     @JitImpl(consumeOperands = 2)
     def apply(x: Any, op: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.updateCheckOffset()
         op.asInstanceOf[Any => Any](x)
     }
@@ -130,7 +119,7 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] object ChainHandler extends Instr {
+private [internal] object IterativeHandler extends Instr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
@@ -142,7 +131,7 @@ private [internal] object ChainHandler extends Instr {
     }
 
     // $COVERAGE-OFF$
-    override def toString: String = s"ChainHandler"
+    override def toString: String = "IterativeHandler"
     // $COVERAGE-ON$
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
@@ -168,7 +157,6 @@ private [internal] final class ChainPreJump(var label: Int) extends InstrWithLab
 
     @JitImpl(consumeOperands = 2)
     def apply(g: Any, f: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.updateCheckOffset()
         new AndThen(f.asInstanceOf[Any => Any], g.asInstanceOf[Any => Any])
     }
@@ -198,7 +186,6 @@ private [internal] final class ChainlJump(var label: Int) extends InstrWithLabel
 
     @JitImpl(consumeOperands = 3)
     def apply(x: Any, op: Any, y: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.updateCheckOffset()
         op.asInstanceOf[(Any, Any) => Any](x, y)
     }
@@ -237,7 +224,6 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
 
     @JitImpl(consumeOperands = 3)
     def apply(rops: Any, x: Any, f: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.popHandler()
         new ROps(f.asInstanceOf, x, rops.asInstanceOf)
     }
@@ -269,11 +255,9 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr w
 
     @JitImpl(consumeOperands = 2)
     def apply(rops: Any, y: Any, ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.popHandler()
         if (ctx.offset == check) {
-            ctx.good = true
             ROps.reduce(rops.asInstanceOf, wrap(y))
         } else FailMarker
     }
@@ -305,7 +289,6 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
 
     @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
     def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
         // pop second handler and jump
         ctx.popHandler()
@@ -355,7 +338,6 @@ private [internal] object SepEndBy1SepHandler extends Instr with SpecializedInst
 
     @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
     def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.popHandler()
 
@@ -385,7 +367,6 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
 
     @JitImpl(consumeOperands = 2)
     def apply(builder: Any, readP: Any, ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         val check = ctx.handlers.check
         ctx.popHandler()
         if (ctx.offset != check || !readP.asInstanceOf[Boolean]) {
@@ -393,7 +374,6 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
             FailMarker
         }
         else {
-            ctx.good = true
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
         }
     }
@@ -446,7 +426,6 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context, pc: Int): Int = {
-        ensureRegularInstruction(ctx)
         x match {
             case ManyUntil.Stop => pc + 1
             case _ => label

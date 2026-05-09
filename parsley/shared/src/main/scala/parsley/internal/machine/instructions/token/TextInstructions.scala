@@ -33,12 +33,10 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
     
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         val res = findFirst(ctx, 0, escTrie)
         if (res >= 0) {
             res
         } else {
-            ctx.good = false
             FailMarker
         }
     }
@@ -138,7 +136,6 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
             assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
             num
         case EscapeSomeNumber.NoDigits =>
-            ctx.good = false
             FailMarker
         case EscapeSomeNumber.NoMoreDigits(_, num) =>
             num
@@ -177,11 +174,9 @@ private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], ine
                 assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
                 go(ctx, m, ms, num)
             case EscapeSomeNumber.NoDigits =>
-                ctx.good = false
                 FailMarker
             case EscapeSomeNumber.NoMoreDigits(remaining, _) =>
                 assume(remaining != 0, "cannot be left with 0 remaining digits and failed")
-                ctx.good = false
                 FailMarker
         }
     }

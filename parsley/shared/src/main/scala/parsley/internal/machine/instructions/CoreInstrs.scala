@@ -23,7 +23,6 @@ private [internal] final class Push[A](x: A) extends Instr with SpecializedInstr
 
     @JitImpl
     def apply(ctx: Context): A = {
-        ensureRegularInstruction(ctx)
         x
     }
 
@@ -48,7 +47,6 @@ private [internal] final class Fresh[A](x: =>A) extends Instr with SpecializedIn
 
     @JitImpl
     def apply(ctx: Context): A = {
-        ensureRegularInstruction(ctx)
         x
     }
 
@@ -107,7 +105,6 @@ private [internal] object Apply extends Instr with SpecializedInstr {
 
     @JitImpl(consumeOperands = 2)
     def apply(f: Any, x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         f.asInstanceOf[Any => Any](x)
     }
 
@@ -130,7 +127,6 @@ private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) ex
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         val runner = f(x, ctx.regs.length, true)
         runner.dynCall(ctx, -1)
     }
@@ -144,8 +140,8 @@ private [internal] object DynCall {
 }
 
 // Control Flow
-private [internal] object Halt extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Halt extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.running = false
         pc
@@ -159,8 +155,8 @@ private [internal] object Halt extends Instr {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final case class Call(var label: Int, producesResults: Boolean) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final case class Call(var label: Int, producesResults: Boolean) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.call(label)
     }
@@ -177,8 +173,8 @@ private [internal] final case class Call(var label: Int, producesResults: Boolea
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(if (producesResults) stacksz + 1 else stacksz, handlers))
 }
 
-private [internal] object Return extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object Return extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.ret()
     }

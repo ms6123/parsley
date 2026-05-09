@@ -26,7 +26,6 @@ private [internal] final class Lift1(f: Any => Any) extends Instr with Specializ
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         f(x)
     }
 
@@ -67,13 +66,11 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
             x
         }
         else {
-            ctx.good = false
             FailMarker
         }
     }
@@ -121,11 +118,8 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr with Spe
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureHandlerInstruction(ctx)
         ctx.restoreState()
-        ctx.restoreHints() // This must be before adding the error to hints
         ctx.popHandler()
-        ctx.good = true
         x
     }
 

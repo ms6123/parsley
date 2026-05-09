@@ -27,11 +27,9 @@ private [deepembedding] final class Many[A, C](val init: StrictParsley[mutable.B
             instrs += new instructions.PushHandler(handler)
             instrs += new instructions.Label(body)
             suspend(p.codeGen[M, R](producesResults)) |> {
-                if (producesResults) {
-                    instrs += new instructions.ManyJump(body)
-                }
+                instrs += (if (producesResults) new instructions.ManyJump(body) else new instructions.SkipManyJump(body))
                 instrs += new instructions.Label(handler)
-                instrs += (if (producesResults) instructions.ManyHandler else new instructions.SkipMany(body))
+                instrs += (if (producesResults) instructions.ManyHandler else instructions.IterativeHandler)
             }
         }
     }
@@ -66,11 +64,9 @@ private [deepembedding] final class ChainPost[A](val p: StrictParsley[A], val op
             instrs += new instructions.PushHandler(handler)
             instrs += new instructions.Label(body)
             suspend(op.codeGen[M, R](producesResults)) |> {
-                if (producesResults) {
-                    instrs += new instructions.ChainPostJump(body)
-                }
+                instrs += (if (producesResults) new instructions.ChainPostJump(body) else new instructions.SkipManyJump(body))
                 instrs += new instructions.Label(handler)
-                instrs += (if (producesResults) instructions.ChainHandler else new instructions.SkipMany(body))
+                instrs += instructions.IterativeHandler
             }
         }
     }
@@ -92,11 +88,9 @@ private [deepembedding] final class ChainPre[A](p: StrictParsley[A], op: StrictP
         instrs += new instructions.PushHandler(handler)
         instrs += new instructions.Label(body)
         suspend(op.codeGen[M, R](producesResults)) >> {
-            if (producesResults) {
-                instrs += new instructions.ChainPreJump(body)
-            }
+            instrs += (if (producesResults) new instructions.ChainPreJump(body) else new instructions.SkipManyJump(body))
             instrs += new instructions.Label(handler)
-            instrs += (if (producesResults) instructions.ChainHandler else new instructions.SkipMany(body))
+            instrs += instructions.IterativeHandler
             suspend(p.codeGen[M, R](producesResults)) |> {
                 if (producesResults) instrs += instructions.Apply
             }
@@ -117,11 +111,9 @@ private [deepembedding] final class Chainl[A, B](val init: StrictParsley[B], val
             instrs += new instructions.Label(body)
             suspend(op.codeGen[M, R](producesResults)) >>
             suspend(p.codeGen[M, R](producesResults)) |> {
-                if (producesResults) {
-                    instrs += new instructions.ChainlJump(body)
-                }
+                instrs += (if (producesResults) new instructions.ChainlJump(body) else new instructions.SkipManyJump(body))
                 instrs += new instructions.Label(handler)
-                instrs += (if (producesResults) instructions.ChainHandler else new instructions.SkipMany(body))
+                instrs += instructions.IterativeHandler
             }
         }
     }

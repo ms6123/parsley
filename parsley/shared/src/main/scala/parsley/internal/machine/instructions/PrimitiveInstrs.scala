@@ -28,7 +28,6 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
             ctx.consumeChar()
         }
         else {
-            ctx.good = false
             FailMarker
         }
     }
@@ -107,7 +106,6 @@ private [internal] object Line extends Instr with SpecializedInstr {
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.line
     }
     
@@ -129,7 +127,6 @@ private [internal] object Col extends Instr with SpecializedInstr {
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.col
     }
     
@@ -151,7 +148,6 @@ private [internal] object Offset extends Instr with SpecializedInstr {
     
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.offset
     }
     
@@ -174,7 +170,6 @@ private [internal] final class Get(reg: Int) extends Instr with SpecializedInstr
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.regs(reg)
     }
 
@@ -196,7 +191,6 @@ private [internal] final class Put(reg: Int) extends Instr with SpecializedInstr
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Unit = {
-        ensureRegularInstruction(ctx)
         ctx.writeReg(reg, x)
     }
 
@@ -219,7 +213,6 @@ private [internal] final class PutAndFail(reg: Int) extends Instr with Specializ
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Unit = {
-        ensureHandlerInstruction(ctx)
         ctx.writeReg(reg, x)
     }
 
@@ -244,7 +237,6 @@ private [internal] object Span extends Instr with SpecializedInstr {
     @JitImpl
     def apply(ctx: Context): Any = {
         // this uses the state stack because post #132 we will need a save point to obtain the start of the input
-        ensureRegularInstruction(ctx)
         val startOffset = ctx.states.offset
         ctx.states = ctx.states.tail
         ctx.popHandler()

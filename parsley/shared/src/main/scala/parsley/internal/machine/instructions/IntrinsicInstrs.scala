@@ -28,7 +28,6 @@ private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with Sp
 
     @JitImpl(consumeOperands = 2)
     def apply(x: Any, y: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         f(x, y)
     }
 
@@ -55,7 +54,6 @@ private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr wi
 
     @JitImpl(consumeOperands = 3)
     def apply(x: Any, y: Any, z: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         f(x, y, z)
     }
 
@@ -188,7 +186,6 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         lazy val hc = ctx.peekChar(0)
         lazy val h = hc.toInt
         lazy val l = ctx.peekChar(1)
@@ -203,7 +200,6 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
             h
         }
         else {
-            ctx.good = false
             FailMarker
         }
     }
@@ -222,7 +218,6 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
 
     @JitImpl(consumeOperands = 1)
     def apply(condition: Any, ctx: Context, pc: Int): Int = {
-        ensureRegularInstruction(ctx)
         if (condition.asInstanceOf[Boolean]) label
         else pc + 1
     }
@@ -337,7 +332,6 @@ private [internal] final class SwapAndPut(reg: Int) extends Instr with Specializ
 
     @JitImpl(consumeOperands = 2)
     def apply(x: Any, y: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         ctx.writeReg(reg, x)
         y
     }
@@ -398,7 +392,6 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         if (pred(x)) {
             carryOn(ctx)
             x
@@ -438,7 +431,6 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         val opt = pred(x)
         if (opt.isDefined) {
             carryOn(ctx)
@@ -477,14 +469,12 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         val state = ctx.states
         ctx.states = state.tail
         ctx.popHandler()
         pred.applyOrElse(x, FilterPartial.orNull) match {
             case null => x
             case _ =>
-                ctx.good = false
                 FailMarker
         }
     }
@@ -519,7 +509,6 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
 
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         val state = ctx.states
         ctx.states = state.tail
         ctx.popHandler()
@@ -527,7 +516,6 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
             case Right(y) =>
                 y
             case Left(_) =>
-                ctx.good = false
                 FailMarker
         }
     }

@@ -8,6 +8,7 @@ import parsley.errors.ErrorBuilder
 import parsley.internal.errors.ExpectItem
 import parsley.internal.machine.Context
 import parsley.internal.machine.errors.DefuncError
+import parsley.internal.machine.instructions.FailMarker
 import parsley.internal.machine.stacks.{HandlerStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
 
@@ -21,25 +22,33 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
 
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         val result = startMethod.invokeExact(this)
-        if (good) {
-            assert(handlers.isEmpty, "there must be no more handlers on end of parse")
-            assert(states.isEmpty, "there must be no residual states left at end of parse")
-            Success(result.asInstanceOf[A])
+        result match {
+            case FailMarker =>
+                assert(handlers.isEmpty, "there must be no more handlers on end of parse")
+                assert(states.isEmpty, "there must be no residual states left at end of parse")
+                Failure(null.asInstanceOf[Err])
+            case _ =>
+                assert(handlers.isEmpty, "there must be no more handlers on end of parse")
+                assert(states.isEmpty, "there must be no residual states left at end of parse")
+                Success(result.asInstanceOf[A])
+        }
+    }
+
+    override private[machine] def good_=(v: Boolean): Unit = ()
+
+    override private[machine] def catchNoConsumed(check: Int)(handler: => Int): Int = {
+        if (offset != check) {
+            popHandler()
+            fail()
         }
         else {
-            assert(handlers.isEmpty, "there must be no more handlers on end of parse")
-            assert(states.isEmpty, "there must be no residual states left at end of parse")
-            Failure(null.asInstanceOf[Err])
+            handler
         }
     }
 
-    override private[machine] def call(at: Int): Int = ???
+    override private [machine] def fail(error: =>DefuncError): Int = fail()
 
-    override private[machine] def ret(): Int = ???
-
-    override protected def failImpl(): Int = {
-        -1
-    }
+    override private [machine] def fail(): Int = -1
 
     override private[machine] def pushHandler(label: Int): Unit = {
         handlers = new JitHandlerStack(offset, handlers)
@@ -56,7 +65,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
         s"""[
            |  input     = ${input.drop(offset)}
            |  pos       = ($line, $col)
-           |  status    = $status
            |  handlers  = ${handlers.mkString(", ")}
            |  recstates = ${states.mkString(", ")}
            |  registers = ${regs.zipWithIndex.map { case (r, i) => s"r$i = $r" }.toList.mkString("\n              ")}

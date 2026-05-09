@@ -227,14 +227,12 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
     
     @JitImpl
     def apply(ctx: Context): Any = {
-        ensureRegularInstruction(ctx)
         if (ctx.moreInput && start(ctx.peekChar)) {
             val initialOffset = ctx.offset
             ctx.offset += 1
             restOfToken(ctx, initialOffset)
         }
         else {
-            ctx.good = false
             FailMarker
         }
     }

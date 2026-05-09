@@ -109,14 +109,6 @@ object Optimizer {
     }
 
     private def analyzeAll(funcById: Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
-        for (instrs <- funcById.values; instr <- instrs) {
-            instr match {
-                case _: (ManyUntil | Case) =>
-                case instr: SpecializedInstr => InstructionImpls.getImpl(instr)
-                case _ =>
-            }
-        }
-
         val callers = {
             val m = scala.collection.mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
             for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs) {

@@ -15,6 +15,9 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
                                           input: String,
                                           numRegs: Int,
                                           sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
+    /** Current operational status of the machine */
+    override private[machine] var good: Boolean = true
+    private[machine] var running: Boolean = true
     /** This is the operand stack, where results go to live */
     private[machine] val stack: ArrayStack[Any] = new ArrayStack()
     private [machine] var handlers: InterpreterHandlerStack = Stack.empty
@@ -155,12 +158,12 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         }
     }
 
-    override private [machine] def call(at: Int): Int = {
+    private [machine] def call(at: Int): Int = {
         calls = new CallStack(pc + 1, instrs, at, calls)
         at
     }
 
-    override private [machine] def ret(): Int = {
+    private [machine] def ret(): Int = {
         assert(calls != null, "cannot return when no calls are made")
         instrs = calls.instrs
         val newPc = calls.ret
@@ -168,7 +171,26 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         newPc
     }
 
-    protected override def failImpl(): Int = {
+    override private[machine] def catchNoConsumed(check: Int)(handler: => Int): Int = {
+        assert(!good, "catching can only be performed in a handler")
+        if (offset != check) {
+            popHandler()
+            fail()
+        }
+        else {
+            good = true
+            handler
+        }
+    }
+
+    override private [machine] def fail(error: => DefuncError): Int = {
+        good = false
+        this.pushError(error)
+        this.fail()
+    }
+
+    override private [machine] def fail(): Int = {
+        assert(!good, "fail() may only be called in a failing context, use `fail(err)` or set `good = false`")
         if (handlers.isEmpty) {
             running = false
             pc
@@ -224,6 +246,11 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
            |]""".stripMargin
     }
     // $COVERAGE-ON$
+
+    private[machine] def status: Status = {
+        if (running) if (good) Good else Recover
+        else if (good) Finished else Failed
+    }
 }
 
 private class InterpreterHandlerStack(val calls: CallStack,
