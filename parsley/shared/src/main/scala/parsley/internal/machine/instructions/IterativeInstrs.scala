@@ -61,9 +61,8 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
         ctx.popHandler()
         if (ctx.offset == check) {
             ctx.good = true
-            ctx.addErrorToHintsAndPop()
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
-        } else null
+        } else FailMarker
     }
 
     // $COVERAGE-OFF$
@@ -275,9 +274,8 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr w
         ctx.popHandler()
         if (ctx.offset == check) {
             ctx.good = true
-            ctx.addErrorToHintsAndPop()
             ROps.reduce(rops.asInstanceOf, wrap(y))
-        } else null
+        } else FailMarker
     }
 
     // $COVERAGE-OFF$
@@ -392,10 +390,9 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
         ctx.popHandler()
         if (ctx.offset != check || !readP.asInstanceOf[Boolean]) {
             // Fail
-            builder
+            FailMarker
         }
         else {
-            ctx.addErrorToHintsAndPop()
             ctx.good = true
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
         }

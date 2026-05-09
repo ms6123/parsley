@@ -15,7 +15,7 @@ import parsley.internal.errors.{ExpectDesc, ExpectItem, ExpectRaw}
 import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, ExpectedError}
-import parsley.internal.machine.instructions.{HandlerInfo, Instr, JitImpl, SpecializedInstr, StackInfo}
+import parsley.internal.machine.instructions.{FailMarker, HandlerInfo, Instr, JitImpl, SpecializedInstr, StackInfo}
 
 private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr with SpecializedInstr {
     def this(escTrie: Trie[Int], escs: Set[String]) = this(escTrie, escs.view.map(_.length).max, escs.map(new ExpectRaw(_)))
@@ -23,18 +23,24 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val res = findFirst(ctx, 0, escTrie)
-        if (ctx.good) {
+        if (res >= 0) {
             ctx.push(res)
             pc + 1
         } else {
-            res
+            ctx.fail()
         }
     }
     
     @JitImpl
     def apply(ctx: Context): Any = {
         ensureRegularInstruction(ctx)
-        findFirst(ctx, 0, escTrie)
+        val res = findFirst(ctx, 0, escTrie)
+        if (res >= 0) {
+            res
+        } else {
+            ctx.good = false
+            FailMarker
+        }
     }
 
     @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Int = {
@@ -59,7 +65,9 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
                 ctx.fastUncheckedConsumeChars(off)
                 x
             case None if couldTryMore => findFirst(ctx, off + 1, escsNew)
-            case None => ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, caretWidth))
+            case None =>
+                ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, caretWidth))
+                -1
         }
     }
 
@@ -129,11 +137,10 @@ private [internal] final class EscapeAtMost(n: Int, radix: Int) extends EscapeSo
         case EscapeSomeNumber.Good(num) =>
             assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
             num
-        case EscapeSomeNumber.NoDigits => 
-            ctx.expectedFail(expected, unexpectedWidth = 1)
-            null
+        case EscapeSomeNumber.NoDigits =>
+            ctx.good = false
+            FailMarker
         case EscapeSomeNumber.NoMoreDigits(_, num) =>
-            ctx.addHints(expectedSet, unexpectedWidth = 1)
             num
     }
 
@@ -170,12 +177,12 @@ private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], ine
                 assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")
                 go(ctx, m, ms, num)
             case EscapeSomeNumber.NoDigits =>
-                ctx.expectedFail(expected, unexpectedWidth = 1)
-                null
+                ctx.good = false
+                FailMarker
             case EscapeSomeNumber.NoMoreDigits(remaining, _) =>
                 assume(remaining != 0, "cannot be left with 0 remaining digits and failed")
-                ctx.fail(inexactErr.mkError(origOff, origLine, origCol, ctx.offset - origOff, m - remaining))
-                null
+                ctx.good = false
+                FailMarker
         }
     }
 

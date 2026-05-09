@@ -62,12 +62,10 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
             pos
         }
         else if (plusPresence eq PlusSignPresence.Required) {
-            ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
-            null
+            ctx.good = false
+            FailMarker
         }
         else {
-            ctx.pushError(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, 1))
-            ctx.addErrorToHintsAndPop()
             pos
         }
     }

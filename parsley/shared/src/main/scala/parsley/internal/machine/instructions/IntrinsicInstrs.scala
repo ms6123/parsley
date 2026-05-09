@@ -17,7 +17,6 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
-import parsley.internal.machine.instructions.FilterLike.FilterError
 
 private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
@@ -204,8 +203,8 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
             h
         }
         else {
-            ctx.expectedFail(expected, unexpectedWidth = 1)
-            null
+            ctx.good = false
+            FailMarker
         }
     }
 
@@ -380,10 +379,6 @@ private [instructions] abstract class FilterLike extends Instr with SpecializedI
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(good -> StackInfo(stacksz, handlers.tail))
 }
 
-private object FilterLike {
-    object FilterError
-}
-
 private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {
     private [this] val pred = _pred.asInstanceOf[Any => Boolean]
 
@@ -401,7 +396,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
         }
     }
 
-    @JitImpl(consumeOperands = 1, fallthroughMarker = classOf[FilterError.type])
+    @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
         ensureRegularInstruction(ctx)
         if (pred(x)) {
@@ -410,7 +405,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
         }
         else {
             fail(ctx)
-            FilterError
+            FallthroughMarker
         }
     }
 
@@ -441,7 +436,7 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
         }
     }
 
-    @JitImpl(consumeOperands = 1, fallthroughMarker = classOf[FilterError.type])
+    @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
         ensureRegularInstruction(ctx)
         val opt = pred(x)
@@ -451,7 +446,7 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
         }
         else {
             fail(ctx)
-            FilterError
+            FallthroughMarker
         }
     }
 
@@ -488,11 +483,9 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
         ctx.popHandler()
         pred.applyOrElse(x, FilterPartial.orNull) match {
             case null => x
-            case (unex, reason) =>
-                val caretWidth = ctx.offset - state.offset
-                val err = unex.makeError(state.offset, state.line, state.col, caretWidth)
-                ctx.fail(err.withReason(reason))
-                null
+            case _ =>
+                ctx.good = false
+                FailMarker
         }
     }
 
@@ -533,10 +526,9 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
         pred(x) match {
             case Right(y) =>
                 y
-            case Left(msgs) =>
-                val caretWidth = ctx.offset - state.offset
-                ctx.fail(new ClassicFancyError(state.offset, state.line, state.col, new RigidCaret(caretWidth), msgs*))
-                null
+            case Left(_) =>
+                ctx.good = false
+                FailMarker
         }
     }
 

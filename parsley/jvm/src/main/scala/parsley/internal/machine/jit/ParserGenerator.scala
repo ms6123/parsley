@@ -14,7 +14,7 @@ private val JIT_CONTEXT = Type.getType(classOf[JitContext])
 private val CONTEXT = Type.getType(classOf[Context])
 private val IMPL_NAME = "parse"
 private val IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
-private val VOID_IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[Unit]), JIT_CONTEXT)
+private val VOID_IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[Boolean]), JIT_CONTEXT)
 
 private object Methods {
     object Context {
@@ -173,9 +173,34 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     jumpToSuccessors(pos, successorLabels.result())
                 }
 
-                def jumpUsingReturnValue(returnType: Class[?], fallthroughMarker: Class[?] = null): Unit = {
+                def jumpUsingReturnValue(returnType: Class[?]): Unit = {
                     if (returnType eq classOf[Int]) {
                         jumpToAllSuccessors()
+                        return
+                    }
+
+                    if (returnType eq classOf[Boolean]) {
+                        require(instrInfo.allPaths.sizeIs <= 2 && (instrInfo.jumpPaths.isEmpty || instrInfo.fallThroughPath.isEmpty))
+
+                        if (instrInfo.allPaths.sizeIs <= 1) {
+                            vis.visitInsn(Opcodes.POP)
+                            jumpToSuccessors(pos, instrInfo.allPaths.map(it => it -> labelForPos(it.pc)))
+                            return
+                        }
+
+                        val Successor(badPc, badAfterActions) = instrInfo.badPath.get
+                        val Seq(Successor(goodPc, goodAfterActions)) = instrInfo.goodPaths
+                        if (badAfterActions.isEmpty) {
+                            vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
+                        } else {
+                            val goodLabel = Label()
+                            vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
+                            performActions(instr, badAfterActions)
+                            vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
+                            vis.visitLabel(goodLabel)
+                        }
+
+                        jumpToSuccessors(pos, Seq(Successor(goodPc, goodAfterActions) -> labelForPos(goodPc)))
                         return
                     }
 
@@ -187,13 +212,13 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 jumpToSuccessors(pos, Seq(Successor(badPc, badAfterActions) -> labelForPos(badPc)))
                                 return
                             }
-                            loadContext()
-                            vis.callMethod(Methods.Context.IS_GOOD)
+                            vis.visitInsn(Opcodes.DUP)
+                            vis.loadObject(FailMarker)
                             if (badAfterActions.isEmpty) {
-                                vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
+                                vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(badPc))
                             } else {
                                 val afterLabel = Label()
-                                vis.visitJumpInsn(Opcodes.IFNE, afterLabel)
+                                vis.visitJumpInsn(Opcodes.IF_ACMPNE, afterLabel)
                                 performActions(instr, badAfterActions)
                                 vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
                                 vis.visitLabel(afterLabel)
@@ -207,17 +232,15 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         case t if t == classOf[Any] =>
                             if (goodPaths.sizeIs <= 1) {
                                 goodPaths
-                            } else if (fallthroughMarker ne classOf[Nothing]) {
+                            } else {
                                 val Successor(fallThroughPc, fallThroughActions) = instrInfo.fallThroughPath.get
                                 require(fallThroughActions.isEmpty)
 
                                 vis.visitInsn(Opcodes.DUP)
-                                vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(fallthroughMarker))
-                                vis.visitJumpInsn(Opcodes.IFNE, labelForPos(fallThroughPc))
+                                vis.loadObject(FallthroughMarker)
+                                vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(fallThroughPc))
 
                                 instrInfo.jumpPaths
-                            } else {
-                                ???
                             }
                     }
 
@@ -279,14 +302,14 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                     performCustomActions(info.afterActions)
 
-                    jumpUsingReturnValue(method.getReturnType, info.fallthroughMarker)
+                    jumpUsingReturnValue(method.getReturnType)
                 }
 
                 instr match {
                     case Call(id, producesResults) =>
                         loadContext()
                         vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, implDesc(producesResults), false)
-                        jumpUsingReturnValue(classOf[Unit])
+                        jumpUsingReturnValue(if (producesResults) classOf[AnyRef] else classOf[Boolean])
                     case Case(label) =>
                         val rightLabel = Label()
 
@@ -336,12 +359,15 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                 vis.visitLabel(successLabel)
                 vis.visitInsn(Opcodes.ARETURN)
                 vis.visitLabel(failureLabel)
-                vis.visitInsn(Opcodes.ACONST_NULL)
+                vis.loadObject(FailMarker)
                 vis.visitInsn(Opcodes.ARETURN)
             } else {
                 vis.visitLabel(successLabel)
+                vis.visitInsn(Opcodes.ICONST_1)
+                vis.visitInsn(Opcodes.IRETURN)
                 vis.visitLabel(failureLabel)
-                vis.visitInsn(Opcodes.RETURN)
+                vis.visitInsn(Opcodes.ICONST_0)
+                vis.visitInsn(Opcodes.IRETURN)
             }
             vis.visitEnd()
         }

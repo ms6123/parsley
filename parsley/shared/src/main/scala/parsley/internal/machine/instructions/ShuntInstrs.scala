@@ -264,11 +264,10 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
         ctx.states = ctx.states.tail
         if (ctx.offset != handlerCheck || state.failOnNoConsumed) {
             // consumed input and/or prefix/atom choice did not match, hard failure
-            null
+            FailMarker
         } else {
             // The end of the expression has been reached
             ctx.good = true
-            ctx.addErrorToHintsAndPop()
             produceResult(state)
         }
     }

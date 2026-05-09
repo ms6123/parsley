@@ -28,8 +28,8 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
             ctx.consumeChar()
         }
         else {
-            ctx.expectedFail(expected, unexpectedWidth = 1)
-            null
+            ctx.good = false
+            FailMarker
         }
     }
 

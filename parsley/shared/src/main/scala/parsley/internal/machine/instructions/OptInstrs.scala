@@ -73,8 +73,8 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
             x
         }
         else {
-            ctx.expectedFail(expected, unexpectedWidth = 1)
-            null
+            ctx.good = false
+            FailMarker
         }
     }
 
@@ -125,7 +125,6 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr with Spe
         ctx.restoreState()
         ctx.restoreHints() // This must be before adding the error to hints
         ctx.popHandler()
-        ctx.addErrorToHintsAndPop()
         ctx.good = true
         x
     }

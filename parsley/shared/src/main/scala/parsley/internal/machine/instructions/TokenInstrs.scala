@@ -216,7 +216,7 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
             val initialOffset = ctx.offset
             ctx.offset += 1
             restOfToken(ctx, initialOffset) match {
-                case null => ctx.handlers.pc
+                case FailMarker => ctx.fail()
                 case tok =>
                     ctx.push(tok)
                     pc + 1
@@ -234,16 +234,16 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
             restOfToken(ctx, initialOffset)
         }
         else {
-            ctx.expectedFail(expected, unexpectedWidth = 1)
-            null
+            ctx.good = false
+            FailMarker
         }
     }
 
-    private def ensureLegal(ctx: Context, tok: String): String | Null = {
+    private def ensureLegal(ctx: Context, tok: String): String | FailMarker.type = {
         if (illegal(tok)) {
             ctx.offset -= tok.length
             ctx.unexpectedFail(expected = expected, unexpected = new UnexpectDesc(unexpectedIllegal(tok), new RigidCaret(tok.length)))
-            null
+            FailMarker
         }
         else {
             ctx.col += tok.length
@@ -251,7 +251,7 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
         }
     }
 
-    @tailrec private def restOfToken(ctx: Context, initialOffset: Int): String | Null = {
+    @tailrec private def restOfToken(ctx: Context, initialOffset: Int): String | FailMarker.type = {
         if (ctx.moreInput && letter(ctx.peekChar)) {
             ctx.offset += 1
             restOfToken(ctx, initialOffset)
