@@ -15,6 +15,7 @@ import parsley.internal.errors.{ExpectDesc, ExpectItem}
 import parsley.internal.machine.Context
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.instructions.Instr
+import parsley.internal.machine.instructions.token.Specific.computePosInfo
 
 private [token] abstract class Specific extends Instr {
     protected val specific: String
@@ -23,46 +24,62 @@ private [token] abstract class Specific extends Instr {
     protected val reason: Option[String]
     private [this] final val strsz = specific.length
     private [this] final val numCodePoints = specific.codePointCount(0, strsz)
+    private [this] final val (numNewlines, charsPreFirstTab, numTabs, charsAfterLastTab) = computePosInfo(specific)
 
-    protected def postprocess(ctx: Context, pc: Int): Int
+    protected def postprocess(ctx: Context): Boolean
 
     final override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        if (ctx.moreInput(strsz)) {
-            ctx.saveState()
-            readSpecific(ctx, pc, 0)
+        if (ctx.input.regionMatches(!caseSensitive, ctx.offset, specific, 0, strsz)) {
+            val oldOffset = ctx.offset
+            val oldLine = ctx.line
+            val oldCol = ctx.col
+            updatePos(ctx)
+
+            if (postprocess(ctx)) {
+                pc + 1
+            } else {
+                ctx.offset = oldOffset
+                ctx.line = oldLine
+                ctx.col = oldCol
+                ctx.fail()
+            }
+        } else {
+            ctx.expectedFailWithReason(expected, reason, numCodePoints)
         }
-        else ctx.expectedFailWithReason(expected, reason, numCodePoints)
     }
 
-    private val readCharCaseHandledBMP = {
-        if (caseSensitive) (ctx: Context) => ctx.peekChar
-        else (ctx: Context) => ctx.peekChar.toLower
-    }
-
-    private val readCharCaseHandledSupplementary = {
-        if (caseSensitive) (ctx: Context) => Character.toCodePoint(ctx.peekChar(0), ctx.peekChar(1))
-        else (ctx: Context) => Character.toLowerCase(Character.toCodePoint(ctx.peekChar(0), ctx.peekChar(1)))
-    }
-
-    @tailrec
-    final private def readSpecific(ctx: Context, pc: Int, j: Int): Int = {
-        if (j < strsz) {
-            val c = specific.codePointAt(j)
-            if (Character.isSupplementaryCodePoint(c) && ctx.moreInput(2) && readCharCaseHandledSupplementary(ctx) == c) {
-                ctx.fastConsumeSupplementaryChar()
-                readSpecific(ctx, pc, j + 2)
-            }
-            else if (ctx.moreInput && readCharCaseHandledBMP(ctx) == c.toChar) {
-                ctx.consumeChar()
-                readSpecific(ctx, pc, j + 1)
-            }
-            else {
-                ctx.restoreState()
-                ctx.expectedFailWithReason(expected, reason, numCodePoints)
-            }
+    private def updatePos(ctx: Context): Unit = {
+        ctx.offset += strsz
+        ctx.line += numNewlines
+        val startCol = if (numNewlines > 0) 1 else ctx.col // newline resets col
+        val afterPre = startCol + charsPreFirstTab
+        ctx.col = if (numTabs > 0) {
+            val afterFirst = ((afterPre + 3) & -4) | 1 // first tab (col-dependent)
+            val afterTabs = afterFirst + (numTabs - 1) * 4 // subsequent tabs always +4
+            afterTabs + charsAfterLastTab
+        } else {
+            afterPre
         }
-        else postprocess(ctx, pc)
+    }
+}
+
+private object Specific {
+    private [Specific] def computePosInfo(s: String): (Int, Int, Int, Int) = {
+        val lastNL = s.lastIndexOf('\n')
+        val lineInc = s.count(_ == '\n')
+        val suffix = if lastNL < 0 then s else s.substring(lastNL + 1)
+
+        val firstTab = suffix.indexOf('\t')
+        if (firstTab < 0) {
+            (lineInc, suffix.length, 0, -1)
+        } else {
+            val lastTab = suffix.lastIndexOf('\t')
+            val preFirstTab = firstTab // plain chars before first tab
+            val numTabs = suffix.count(_ == '\t')
+            val postLastTab = suffix.length - lastTab - 1 // plain chars after last tab
+            (lineInc, preFirstTab, numTabs, postLastTab)
+        }
     }
 }
 
@@ -76,15 +93,13 @@ private [internal] final class SoftKeyword(protected val specific: String, lette
              expected.asExpectItems(specific), expected.asReason, Some(new ExpectDesc(expectedEnd)))
     }
 
-    protected def postprocess(ctx: Context, pc: Int): Int = {
+    protected def postprocess(ctx: Context): Boolean = {
         if (letter.peek(ctx)) {
-            val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
-            ctx.restoreState()
-            newPc
+            ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
+            false
         }
         else {
-            ctx.states = ctx.states.tail
-            pc + 1
+            true
         }
     }
 
@@ -111,22 +126,19 @@ private [internal] final class SoftOperator(protected val specific: String, lett
         else unexpectedWidth
     }
 
-    protected def postprocess(ctx: Context, pc: Int): Int = {
+    protected def postprocess(ctx: Context): Boolean = {
         if (letter.peek(ctx)) {
-            val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
-            ctx.restoreState()
-            newPc
+            ctx.expectedFail(expectedEnd, unexpectedWidth = 1) //This should only report a single token
+            false
         }
         else {
             val unexpectedWidth = checkEnds(ctx, ends, off = 0, unexpectedWidth = 0)
             if (unexpectedWidth != 0) {
-                val newPc = ctx.expectedFail(expectedEnd, unexpectedWidth)
-                ctx.restoreState()
-                newPc
+                ctx.expectedFail(expectedEnd, unexpectedWidth)
+                false
             }
             else {
-                ctx.states = ctx.states.tail
-                pc + 1
+                true
             }
         }
     }
