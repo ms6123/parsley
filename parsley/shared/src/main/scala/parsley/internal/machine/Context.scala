@@ -59,8 +59,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def catchNoConsumed(check: Int)(handler: =>Int): Int
 
-    private [machine] def pushError(err: =>DefuncError): Unit
-
     private [machine] def popError(): Unit
 
     private [machine] def relabelError(labels: Iterable[String]): Unit
@@ -79,24 +77,15 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def markErrorAsLexical(): Unit
 
-    private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Int = {
-        this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs*))
-    }
-    private [machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Int = {
-        this.fail(new UnexpectedError(offset, line, col, expected, unexpected))
-    }
-    private [machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Int = {
-        this.fail(new ExpectedError(offset, line, col, expected, unexpectedWidth))
-    }
-    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Int = {
-        this.fail(new ExpectedErrorWithReason(offset, line, col, expected, reason, unexpectedWidth))
-    }
-    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Int = {
-        if (reason.isEmpty) this.expectedFail(expected, unexpectedWidth)
-        else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
-    }
-
-    private [machine] def fail(error: =>DefuncError): Int
+    private [machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Int
+    
+    private [machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Int
+    
+    private [machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Int
+    
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Int
+    
+    private [machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Int
 
     private [machine] def fail(): Int
     

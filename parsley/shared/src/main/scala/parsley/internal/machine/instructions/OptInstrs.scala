@@ -238,7 +238,7 @@ private [internal] final class JumpTable
             if (JumpTable.wasUndefined(res)) getRoot(char, fs) else res
     }
 
-    private def addErrors(ctx: Context, errorItems: Iterable[ExpectItem]): Unit = {
+    private def addErrors(ctx: InterpreterContext, errorItems: Iterable[ExpectItem]): Unit = {
         // FIXME: the more appropriate way of demanding input may be to pick 1 character, for same rationale with StringTok
         ctx.pushError(new ExpectedError(ctx.offset, ctx.line, ctx.col, errorItems, unexpectedWidth = size))
     }

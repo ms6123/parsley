@@ -64,7 +64,7 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
                 x
             case None if couldTryMore => findFirst(ctx, off + 1, escsNew)
             case None =>
-                ctx.fail(new ExpectedError(ctx.offset, ctx.line, ctx.col, expecteds, caretWidth))
+                ctx.expectedFail(expecteds, caretWidth)
                 -1
         }
     }

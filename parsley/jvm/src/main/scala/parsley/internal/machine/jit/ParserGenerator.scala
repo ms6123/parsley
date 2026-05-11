@@ -373,9 +373,6 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         vis.visitLabel(stopLabel)
                         vis.visitInsn(Opcodes.POP)
                         vis.callMethod(Methods.Builder.RESULT)
-                    case Return | Halt =>
-                        // No-ops
-                        vis.visitJumpInsn(Opcodes.GOTO, successLabel)
                     case specialized: SpecializedInstr =>
                         applySpecialized(specialized)
                     case _ =>

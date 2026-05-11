@@ -142,6 +142,10 @@ private [internal] object Halt extends Instr with SpecializedInstr {
         ctx.running = false
         pc
     }
+
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+    
     // $COVERAGE-OFF$
     override def toString: String = "Halt"
     // $COVERAGE-ON$
@@ -174,6 +178,10 @@ private [internal] object Return extends Instr with SpecializedInstr {
         ensureRegularInstruction(ctx)
         ctx.ret()
     }
+    
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+    
     // $COVERAGE-OFF$
     override def toString: String = "Return"
     // $COVERAGE-ON$
@@ -183,11 +191,15 @@ private [internal] object Return extends Instr with SpecializedInstr {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class Empty(width: Int) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Empty(width: Int) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.fail(new EmptyError(ctx.offset, ctx.line, ctx.col, unexpectedWidth = width))
     }
+
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+    
     // $COVERAGE-OFF$
     override def toString: String = "Empty"
     // $COVERAGE-ON$
@@ -331,11 +343,15 @@ private [internal] object PopHandlerAndState extends Instr with SpecializedInstr
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class Jump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Jump(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         label
     }
+    
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+    
     // $COVERAGE-OFF$
     override def toString: String = s"Jump($label)"
     // $COVERAGE-ON$

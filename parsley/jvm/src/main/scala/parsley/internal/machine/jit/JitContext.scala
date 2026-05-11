@@ -5,7 +5,7 @@ import java.lang.invoke.MethodHandle
 import parsley.XAssert.assert
 import parsley.errors.ErrorBuilder
 
-import parsley.internal.errors.ExpectItem
+import parsley.internal.errors.{CaretWidth, ExpectItem, UnexpectDesc}
 import parsley.internal.machine.Context
 import parsley.internal.machine.errors.DefuncError
 import parsley.internal.machine.instructions.FailMarker
@@ -41,8 +41,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
         }
     }
 
-    override private [machine] def fail(error: =>DefuncError): Int = fail()
-
     override private [machine] def fail(): Int = -1
 
     // $COVERAGE-OFF$
@@ -57,6 +55,16 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     // $COVERAGE-ON$
 
     // Error handling
+    override private[machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Int = fail()
+
+    override private[machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Int = fail()
+
+    override private[machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Int = fail()
+
+    override private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Int = fail()
+
+    override private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Int = fail()
+    
     override private[machine] def mergeHints(): Unit = ()
 
     override private[machine] def popHints(): Unit = ()
@@ -70,8 +78,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     override private[machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int): Unit = ()
 
     override private[machine] def clearHints(): Unit = ()
-
-    override private[machine] def pushError(err: => DefuncError): Unit = ()
 
     override private[machine] def popError(): Unit = ()
 

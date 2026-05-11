@@ -3,8 +3,8 @@ package parsley.internal.machine
 import parsley.errors.ErrorBuilder
 import parsley.XAssert.{assert, assume}
 
-import parsley.internal.errors.ExpectItem
-import parsley.internal.machine.errors.{DefuncError, DefuncHints, EmptyError, EmptyHints, ExpectedError}
+import parsley.internal.errors.{CaretWidth, ExpectItem, UnexpectDesc}
+import parsley.internal.machine.errors.{ClassicFancyError, DefuncError, DefuncHints, EmptyError, EmptyHints, ExpectedError, ExpectedErrorWithReason, UnexpectedError}
 import parsley.internal.machine.instructions.Instr
 import parsley.internal.machine.stacks.{ArrayStack, CallStack, HandlerStack, Stack}
 import parsley.internal.machine.stacks.Stack.StackExt
@@ -93,7 +93,7 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         handlers.check = offset
     }
 
-    override private [machine] def pushError(err: =>DefuncError): Unit = errs.push(this.useHints(err))
+    private [machine] def pushError(err: DefuncError): Unit = errs.push(this.useHints(err))
 
     override private[machine] def popError(): Unit = errs.pop_()
     
@@ -189,7 +189,28 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         }
     }
 
-    override private [machine] def fail(error: => DefuncError): Int = {
+    override private[machine] def failWithMessage(caretWidth: CaretWidth, msgs: String*): Int = {
+        this.fail(new ClassicFancyError(offset, line, col, caretWidth, msgs *))
+    }
+
+    override private[machine] def unexpectedFail(expected: Iterable[ExpectItem], unexpected: UnexpectDesc): Int = {
+        this.fail(new UnexpectedError(offset, line, col, expected, unexpected))
+    }
+
+    override private[machine] def expectedFail(expected: Iterable[ExpectItem], unexpectedWidth: Int): Int = {
+        this.fail(new ExpectedError(offset, line, col, expected, unexpectedWidth))
+    }
+
+    override private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: String, unexpectedWidth: Int): Int = {
+        this.fail(new ExpectedErrorWithReason(offset, line, col, expected, reason, unexpectedWidth))
+    }
+
+    override private[machine] def expectedFailWithReason(expected: Iterable[ExpectItem], reason: Option[String], unexpectedWidth: Int): Int = {
+        if (reason.isEmpty) this.expectedFail(expected, unexpectedWidth)
+        else this.expectedFailWithReason(expected, reason.get, unexpectedWidth)
+    }
+
+    private [machine] def fail(error: DefuncError): Int = {
         good = false
         this.pushError(error)
         this.fail()

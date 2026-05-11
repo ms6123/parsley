@@ -222,12 +222,7 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
         if (ctx.moreInput && start(ctx.peekChar)) {
             val initialOffset = ctx.offset
             ctx.offset += 1
-            restOfToken(ctx, initialOffset) match {
-                case FailMarker => ctx.fail()
-                case tok =>
-                    ctx.push(tok)
-                    pc + 1
-            }
+            ensureLegal(ctx, pc, restOfToken(ctx, initialOffset))
         }
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
@@ -237,31 +232,38 @@ private [internal] final class TokenNonSpecific(name: String, unexpectedIllegal:
         if (ctx.moreInput && start(ctx.peekChar)) {
             val initialOffset = ctx.offset
             ctx.offset += 1
-            restOfToken(ctx, initialOffset)
+            val token = restOfToken(ctx, initialOffset)
+            if (illegal(token)) {
+                ctx.offset -= token.length
+                FailMarker
+            } else {
+                ctx.col += token.length
+                token
+            }
         }
         else {
             FailMarker
         }
     }
 
-    private def ensureLegal(ctx: Context, tok: String): String | FailMarker.type = {
+    private def ensureLegal(ctx: InterpreterContext, pc: Int, tok: String): Int = {
         if (illegal(tok)) {
             ctx.offset -= tok.length
             ctx.unexpectedFail(expected = expected, unexpected = new UnexpectDesc(unexpectedIllegal(tok), new RigidCaret(tok.length)))
-            FailMarker
         }
         else {
             ctx.col += tok.length
-            tok
+            ctx.push(tok)
+            pc + 1
         }
     }
 
-    @tailrec private def restOfToken(ctx: Context, initialOffset: Int): String | FailMarker.type = {
+    @tailrec private def restOfToken(ctx: Context, initialOffset: Int): String = {
         if (ctx.moreInput && letter(ctx.peekChar)) {
             ctx.offset += 1
             restOfToken(ctx, initialOffset)
         }
-        else ensureLegal(ctx, ctx.input.substring(initialOffset, ctx.offset))
+        else ctx.input.substring(initialOffset, ctx.offset)
     }
 
     // $COVERAGE-OFF$
