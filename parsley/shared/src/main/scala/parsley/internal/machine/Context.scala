@@ -56,12 +56,8 @@ private [parsley] abstract class Context(private[machine] val input: String,
     private [machine] def clearHints(): Unit
 
     private[machine] def handlerCheck: Int
-    
-    private [machine] def handlerCheck_=(v: Int): Unit
 
-    private[machine] def updateCheckOffset(): Unit = {
-        this.handlerCheck = this.offset
-    }
+    private[machine] def updateCheckOffset(): Unit
 
     private [machine] def pretty: String
 

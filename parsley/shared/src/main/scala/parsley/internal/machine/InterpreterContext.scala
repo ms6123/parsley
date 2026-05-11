@@ -89,7 +89,9 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
 
     override private[machine] def handlerCheck = handlers.check
 
-    override private[machine] def handlerCheck_=(v: Int): Unit = handlers.check = v
+    override private[machine] def updateCheckOffset(): Unit = {
+        handlers.check = offset
+    }
 
     override private [machine] def pushError(err: =>DefuncError): Unit = errs.push(this.useHints(err))
 

@@ -62,7 +62,9 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
 
     override private[machine] def handlerCheck = handlers.peek
 
-    override private[machine] def handlerCheck_=(v: Int): Unit = handlers.exchange(v)
+    override private[machine] def updateCheckOffset(): Unit = {
+        handlers.exchange(this.offset)
+    }
 
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {
