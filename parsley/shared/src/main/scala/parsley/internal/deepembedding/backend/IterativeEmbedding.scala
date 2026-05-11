@@ -165,6 +165,7 @@ private [deepembedding] final class SepEndBy1[A, C](val p: StrictParsley[A], val
         val body = state.freshLabel()
         val handler1 = state.freshLabel()
         val handler2 = state.freshLabel()
+        val endLabel = state.freshLabel()
         instrs += new instructions.Fresh(factory.newBuilder)
         instrs += new instructions.Push(false) // this tracks if p has been consumed
         instrs += new instructions.PushHandler(handler1)
@@ -174,9 +175,10 @@ private [deepembedding] final class SepEndBy1[A, C](val p: StrictParsley[A], val
             suspend(sep.codeGen[M, R](producesResults = false)) |> {
                 instrs += new instructions.SepEndBy1Jump(body) // will set bool to true
                 instrs += new instructions.Label(handler2)
-                instrs += instructions.SepEndBy1SepHandler // ignores bool, it's true
+                instrs += new instructions.SepEndBy1SepHandler(endLabel) // ignores bool, it's true
                 instrs += new instructions.Label(handler1)
                 instrs += instructions.SepEndBy1WholeHandler // queries the bool
+                instrs += new instructions.Label(endLabel)
                 if (!producesResults) instrs += instructions.Pop
             }
         }

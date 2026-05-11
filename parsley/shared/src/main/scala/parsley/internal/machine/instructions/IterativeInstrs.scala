@@ -310,50 +310,69 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
 }
 
 private [instructions] object SepEndBy1Handlers {
-    def pushAccWhenCheckValidAndContinue(ctx: InterpreterContext, pc: Int, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Int = {
+    def pushAccWhenCheckValidAndContinue(ctx: InterpreterContext, label: Int, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Int = {
         if (ctx.offset != check || !readP) ctx.fail()
         else {
             ctx.addErrorToHintsAndPop()
             ctx.good = true
             ctx.exchange(acc.result())
-            pc + 1
+            label
+        }
+    }
+
+    def accWhenCheckValidOrFailMarker(ctx: Context, check: Int, acc: mutable.Builder[Any, Any], readP: Boolean): Any = {
+        if (ctx.offset != check || !readP) {
+            // Fail
+            FailMarker
+        }
+        else {
+            acc.result()
         }
     }
 }
 
-private [internal] object SepEndBy1SepHandler extends Instr with SpecializedInstr {
+private [internal] class SepEndBy1SepHandler(var label: Int) extends InstrWithLabel with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
-        val check = ctx.handlerCheck
-        ctx.popHandler()
+        val check = ctx.handlers.check
+        ctx.handlers = ctx.handlers.tail
         // p succeeded and sep didn't, so push p and fall-through to the whole handler
         val x = ctx.stack.upop()
         ctx.stack.pop_() // the bool is no longer needed
         val acc = ctx.stack.peek[mutable.Builder[Any, Any]]
         acc += x
-        ctx.handlerCheck = check
-        ctx.stack.upush(true)
-        pc + 1
+        // discard the other handler and increment so that we are sat on the other handler
+        assert(ctx.instrs(ctx.pc + 1) eq SepEndBy1WholeHandler, "the next instruction from the sep handler must be the whole handler")
+        assert(ctx.handlers.pc == ctx.pc + 1, "the top-most handler must be the whole handler in the sep handler")
+        ctx.handlers = ctx.handlers.tail
+        SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, label, check, acc, readP = true)
     }
 
-    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
+    @JitImpl(consumeOperands = 3)
     def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
         val check = ctx.handlerCheck
         ctx.popHandler()
 
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
 
-        ctx.handlerCheck = check
-        builder
+        ctx.popHandler()
+
+        SepEndBy1Handlers.accWhenCheckValidOrFailMarker(ctx, check, builder.asInstanceOf, readP = true)
     }
+
+    override def copy: Instr = SepEndBy1SepHandler(label)
 
     // $COVERAGE-OFF$
     override def toString: String = "SepEndBy1SepHandler"
     // $COVERAGE-ON$
 
-    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
-    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 2, handlers.tail.tail))
+
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(
+        label -> StackInfo(stacksz - 2, handlers.tail.tail),
+    )
 }
 
 private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedInstr {
@@ -362,20 +381,15 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
         val check = ctx.handlerCheck
         ctx.popHandler()
         val readP = ctx.stack.pop[Boolean]()
-        SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, pc, check, ctx.stack.peek[mutable.Builder[Any, Any]], readP)
+        SepEndBy1Handlers.pushAccWhenCheckValidAndContinue(ctx, pc + 1, check, ctx.stack.peek[mutable.Builder[Any, Any]], readP)
     }
 
     @JitImpl(consumeOperands = 2)
     def apply(builder: Any, readP: Any, ctx: Context): Any = {
         val check = ctx.handlerCheck
         ctx.popHandler()
-        if (ctx.offset != check || !readP.asInstanceOf[Boolean]) {
-            // Fail
-            FailMarker
-        }
-        else {
-            builder.asInstanceOf[mutable.Builder[Any, Any]].result()
-        }
+
+        SepEndBy1Handlers.accWhenCheckValidOrFailMarker(ctx, check, builder.asInstanceOf, readP.asInstanceOf)
     }
 
     // $COVERAGE-OFF$
