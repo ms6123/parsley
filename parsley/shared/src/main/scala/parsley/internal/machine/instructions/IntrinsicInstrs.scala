@@ -27,7 +27,7 @@ private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with Sp
     }
 
     @JitImpl(consumeOperands = 2)
-    def apply(x: Any, y: Any, ctx: Context): Any = {
+    def apply(x: Any, y: Any): Any = {
         f(x, y)
     }
 
@@ -53,7 +53,7 @@ private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr wi
     }
 
     @JitImpl(consumeOperands = 3)
-    def apply(x: Any, y: Any, z: Any, ctx: Context): Any = {
+    def apply(x: Any, y: Any, z: Any): Any = {
         f(x, y, z)
     }
 
@@ -217,7 +217,7 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(condition: Any, ctx: Context, pc: Int): Int = {
+    def apply(condition: Any, @Pc pc: Int): Int = {
         if (condition.asInstanceOf[Boolean]) label
         else pc + 1
     }

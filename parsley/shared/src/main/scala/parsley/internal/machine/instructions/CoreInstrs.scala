@@ -22,9 +22,7 @@ private [internal] final class Push[A](x: A) extends Instr with SpecializedInstr
     }
 
     @JitImpl
-    def apply(ctx: Context): A = {
-        x
-    }
+    def apply: Any = x
 
     // $COVERAGE-OFF$
     override def toString: String = s"Push($x)"
@@ -46,9 +44,7 @@ private [internal] final class Fresh[A](x: =>A) extends Instr with SpecializedIn
     }
 
     @JitImpl
-    def apply(ctx: Context): A = {
-        x
-    }
+    def apply: Any = x
 
     // $COVERAGE-OFF$
     override def toString: String = s"Fresh($x)"
@@ -67,7 +63,7 @@ private [internal] object Pop extends Instr with SpecializedInstr {
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(@unused operand: Any, ctx: Context): Unit = ()
+    def apply(@unused operand: Any): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "Pop"
@@ -104,7 +100,7 @@ private [internal] object Apply extends Instr with SpecializedInstr {
     }
 
     @JitImpl(consumeOperands = 2)
-    def apply(f: Any, x: Any, ctx: Context): Any = {
+    def apply(f: Any, x: Any): Any = {
         f.asInstanceOf[Any => Any](x)
     }
 

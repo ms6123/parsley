@@ -439,7 +439,7 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context, pc: Int): Int = {
+    def apply(x: Any, ctx: Context, @Pc pc: Int): Int = {
         x match {
             case ManyUntil.Stop => pc + 1
             case _ => label

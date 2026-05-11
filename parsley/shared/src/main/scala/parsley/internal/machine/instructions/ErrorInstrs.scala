@@ -214,7 +214,7 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
     }
     
     @JitImpl
-    def apply(ctx: Context): Unit = ()
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "VanillaGen"
@@ -234,7 +234,7 @@ private [internal] final class SpecializedGen[A](gen: parsley.errors.Specialized
     }
     
     @JitImpl
-    def apply(ctx: Context): Unit = ()
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "SpecializedGen"

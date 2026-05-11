@@ -25,7 +25,7 @@ private [internal] final class Lift1(f: Any => Any) extends Instr with Specializ
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
+    def apply(x: Any): Any = {
         f(x)
     }
 

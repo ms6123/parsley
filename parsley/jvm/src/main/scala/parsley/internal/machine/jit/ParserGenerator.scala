@@ -149,9 +149,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                 }
             }
 
-            for ((instr, pos) <- function.instrs.view.zipWithIndex if function.info.instrInfos(pos).isReachable) {
-                val instrInfo = function.info.instrInfos(pos)
-
+            for ((instr, pos) <- function.instrs.view.zipWithIndex; instrInfo <- function.info.instrInfos(pos)) {
                 vis.visitLabel(instrLabels(pos))
 
 //                vis.loadObject(instr)
@@ -263,7 +261,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                 def applySpecialized(instr: Instr & SpecializedInstr): Unit = {
                     val (method, info) = InstructionImpls.getImpl(instr)
-                    val trailingParams = method.getParameterTypes.drop(info.consumeOperands + 1)
+                    val trailingParams = method.getParameterTypes.view.zip(method.getParameterAnnotations).drop(info.consumeOperands).toArray
 
                     performCustomActions(info.beforeActions)
 
@@ -290,11 +288,13 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             }
                     }
 
-                    loadContext()
-
-                    for (param <- trailingParams) {
-                        param match {
-                            case Integer.TYPE => vis.loadInt(pos)
+                    for ((ty, annotations) <- trailingParams) {
+                        if (ty eq classOf[Context]) {
+                            loadContext()
+                        } else {
+                            require(annotations.view.collect {
+                                case _: Pc => vis.loadInt(pos)
+                            }.sizeIs == 1)
                         }
                     }
 

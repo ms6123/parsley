@@ -2,7 +2,7 @@ package parsley.internal.machine.jit
 
 import parsley.internal.machine.instructions.{Instr, StackInfo}
 
-class FunctionInfo(val instrInfos: Array[InstrInfo])
+class FunctionInfo(val instrInfos: Array[Option[InstrInfo]])
 
 sealed trait AfterAction
 
@@ -12,20 +12,18 @@ object AfterAction {
 
 case class Successor(pc: Int, afterActions: Seq[AfterAction])
 
-case class InstrInfo(isReachable: Boolean, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
+case class InstrInfo(stackInfo: StackInfo, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
     def goodPaths: Seq[Successor] = fallThroughPath.toSeq ++ jumpPaths
 
     def allPaths: Seq[Successor] = goodPaths ++ badPath.toSeq
 }
 
 object InstrInfo {
-    private val Unreachable = InstrInfo(false, None, Seq.empty, None)
-
-    def apply(instr: Instr, pos: Int, possibleStack: Option[StackInfo], canSucceed: Boolean = true, canFail: Boolean = true): InstrInfo =
+    def apply(instr: Instr, pos: Int, possibleStack: Option[StackInfo], canSucceed: Boolean = true, canFail: Boolean = true): Option[InstrInfo] =
         possibleStack match {
             case None =>
-                Unreachable
-            case Some(StackInfo(stacksz, handlers)) =>
+                None
+            case Some(stackInfo@StackInfo(stacksz, handlers)) =>
                 val fallThroughPath = instr.fallThroughPath(stacksz, handlers).filter(_ => canSucceed).map { _ =>
                     Successor(pos + 1, Seq.empty)
                 }
@@ -36,7 +34,7 @@ object InstrInfo {
                     val activeHandler = stackAfter.handlers.head
                     Successor(activeHandler.pc, popActions(stackAfter.stacksz, activeHandler.stacksz))
                 }
-                InstrInfo(true, fallThroughPath, jumpPaths, badPath)
+                Some(InstrInfo(stackInfo, fallThroughPath, jumpPaths, badPath))
         }
 
     private def popActions(startStack: Int, endStack: Int): Seq[AfterAction] =
