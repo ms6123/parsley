@@ -55,10 +55,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
 
     private [machine] def clearHints(): Unit
 
-    private[machine] def handlerCheck: Int
-
-    private[machine] def updateCheckOffset(): Unit
-
     private [machine] def pretty: String
 
     private [machine] def catchNoConsumed(check: Int)(handler: =>Int): Int
@@ -129,9 +125,6 @@ private [parsley] abstract class Context(private[machine] val input: String,
         offset += n
         col += n
     }
-    private [machine] def pushHandler(label: Int): Unit
-    private [machine] def popHandler(): Unit
-    private [machine] def replaceHandler(label: Int): Unit
     private [machine] def refreshState(): Unit = {
         val state = states
         state.offset = offset

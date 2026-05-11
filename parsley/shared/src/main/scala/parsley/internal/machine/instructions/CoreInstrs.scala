@@ -198,12 +198,16 @@ private [internal] object Empty {
     val zero = new Empty(0)
 }
 
-private [internal] final class PushHandler(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class PushHandler(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandler($label)"
     // $COVERAGE-ON$
@@ -215,12 +219,16 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object PopHandler extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object PopHandler extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.popHandler()
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = "PopHandler"
     // $COVERAGE-ON$
@@ -230,13 +238,17 @@ private [internal] object PopHandler extends Instr {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class PushHandlerAndClearHints(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class PushHandlerAndClearHints(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.clearHints()
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndClearHints($label)"
     // $COVERAGE-ON$
@@ -248,14 +260,20 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.saveState()
         ctx.clearHints()
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.saveState()
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndStateAndClearHints($label)"
     // $COVERAGE-ON$
@@ -267,13 +285,19 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class PushHandlerAndState(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class PushHandlerAndState(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         ctx.saveState()
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.saveState()
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"PushHandlerAndState($label)"
     // $COVERAGE-ON$
@@ -285,13 +309,19 @@ private [internal] final class PushHandlerAndState(var label: Int) extends Instr
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object PopHandlerAndState extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object PopHandlerAndState extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.states = ctx.states.tail
         ctx.popHandler()
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.states = ctx.states.tail
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = "PopHandlerAndState"
     // $COVERAGE-ON$
@@ -319,13 +349,17 @@ private [internal] final class Jump(var label: Int) extends InstrWithLabel {
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers))
 }
 
-private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // TODO: should this be mergeHints?
         ctx.popHandler()
         label
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"JumpAndPopCheck($label)"
     // $COVERAGE-ON$
@@ -339,13 +373,19 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class JumpAndPopState(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class JumpAndPopState(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.popHandler()
         ctx.states = ctx.states.tail
         label
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.states = ctx.states.tail
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"JumpAndPopState($label)"
     // $COVERAGE-ON$
@@ -359,8 +399,8 @@ private [internal] final class JumpAndPopState(var label: Int) extends InstrWith
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class Catch(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Catch(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         ctx.catchNoConsumed(ctx.handlerCheck) {
@@ -368,6 +408,14 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
             pc + 1
         }
     }
+
+    @JitImpl
+    def apply(ctx: Context, @Pc pc: Int, @HandlerCheck check: Int): Int = {
+        ctx.catchNoConsumed(check) {
+            pc + 1
+        }
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Catch($label)"
     // $COVERAGE-ON$
@@ -379,8 +427,8 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
 
-private [internal] final class RestoreAndPushHandler(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class RestoreAndPushHandler(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreState()
         ctx.restoreHints()
@@ -388,6 +436,12 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
         ctx.replaceHandler(label)
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.restoreState()
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"RestoreAndPushHandler($label)"
     // $COVERAGE-ON$

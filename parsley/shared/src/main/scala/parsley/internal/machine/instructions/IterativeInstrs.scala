@@ -20,11 +20,9 @@ private [internal] final class ManyJump(var label: Int) extends InstrWithLabel w
         label
     }
 
-    @JitImpl(consumeOperands = 2)
+    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
     def apply(builder: Any, x: Any, ctx: Context): Any = {
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
-        ctx.updateCheckOffset()
-        builder
     }
 
     // $COVERAGE-OFF$
@@ -53,10 +51,8 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(builder: Any, ctx: Context): Any = {
+    def apply(builder: Any, ctx: Context, @HandlerCheck check: Int): Any = {
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        val check = ctx.handlerCheck
-        ctx.popHandler()
         if (ctx.offset == check) {
             builder.asInstanceOf[mutable.Builder[Any, Any]].result()
         } else FailMarker
@@ -72,12 +68,16 @@ private [internal] object ManyHandler extends Instr with SpecializedInstr {
 }
 
 // TODO: Factor these handlers out!
-private [internal] final class SkipManyJump(var label: Int) extends InstrWithLabel {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class SkipManyJump(var label: Int) extends InstrWithLabel with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.updateCheckOffset()
         label
     }
+
+    @JitImpl(afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"SkipManyJump($label)"
     // $COVERAGE-ON$
@@ -100,9 +100,8 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
         label
     }
 
-    @JitImpl(consumeOperands = 2)
+    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
     def apply(x: Any, op: Any, ctx: Context): Any = {
-        ctx.updateCheckOffset()
         op.asInstanceOf[Any => Any](x)
     }
 
@@ -119,12 +118,21 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] object IterativeHandler extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object IterativeHandler extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         ctx.catchNoConsumed(ctx.handlerCheck) {
             ctx.popHandler()
+            ctx.addErrorToHintsAndPop()
+            pc + 1
+        }
+    }
+
+    @JitImpl
+    def apply(ctx: Context, @Pc pc: Int, @HandlerCheck check: Int): Int = {
+        // If the head of input stack is not the same size as the head of check stack, we fail to next handler
+        ctx.catchNoConsumed(check) {
             ctx.addErrorToHintsAndPop()
             pc + 1
         }
@@ -155,9 +163,8 @@ private [internal] final class ChainPreJump(var label: Int) extends InstrWithLab
         label
     }
 
-    @JitImpl(consumeOperands = 2)
-    def apply(g: Any, f: Any, ctx: Context): Any = {
-        ctx.updateCheckOffset()
+    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    def apply(g: Any, f: Any): Any = {
         new AndThen(f.asInstanceOf[Any => Any], g.asInstanceOf[Any => Any])
     }
 
@@ -184,9 +191,8 @@ private [internal] final class ChainlJump(var label: Int) extends InstrWithLabel
         label
     }
 
-    @JitImpl(consumeOperands = 3)
-    def apply(x: Any, op: Any, y: Any, ctx: Context): Any = {
-        ctx.updateCheckOffset()
+    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    def apply(x: Any, op: Any, y: Any): Any = {
         op.asInstanceOf[(Any, Any) => Any](x, y)
     }
 
@@ -223,8 +229,7 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
     }
 
     @JitImpl(consumeOperands = 3)
-    def apply(rops: Any, x: Any, f: Any, ctx: Context): Any = {
-        ctx.popHandler()
+    def apply(rops: Any, x: Any, f: Any): Any = {
         new ROps(f.asInstanceOf, x, rops.asInstanceOf)
     }
 
@@ -254,9 +259,7 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr w
     }
 
     @JitImpl(consumeOperands = 2)
-    def apply(rops: Any, y: Any, ctx: Context): Any = {
-        val check = ctx.handlerCheck
-        ctx.popHandler()
+    def apply(rops: Any, y: Any, ctx: Context, @HandlerCheck check: Int): Any = {
         if (ctx.offset == check) {
             ROps.reduce(rops.asInstanceOf, wrap(y))
         } else FailMarker
@@ -287,13 +290,9 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
         label
     }
 
-    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.PushTrue))
-    def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.UpdateCheckOffset, JitImpl.Action.PushTrue))
+    def apply(builder: Any, @unused bool: Any, x: Any): Any = {
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
-        // pop second handler and jump
-        ctx.popHandler()
-        ctx.updateCheckOffset()
-        builder
     }
 
     // $COVERAGE-OFF$
@@ -349,14 +348,8 @@ private [internal] class SepEndBy1SepHandler(var label: Int) extends InstrWithLa
     }
 
     @JitImpl(consumeOperands = 3)
-    def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context): Any = {
-        val check = ctx.handlerCheck
-        ctx.popHandler()
-
+    def apply(builder: Any, @unused bool: Any, x: Any, ctx: Context, @HandlerCheck check: Int): Any = {
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
-
-        ctx.popHandler()
-
         SepEndBy1Handlers.accWhenCheckValidOrFailMarker(ctx, check, builder.asInstanceOf, readP = true)
     }
 
@@ -385,10 +378,7 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
     }
 
     @JitImpl(consumeOperands = 2)
-    def apply(builder: Any, readP: Any, ctx: Context): Any = {
-        val check = ctx.handlerCheck
-        ctx.popHandler()
-
+    def apply(builder: Any, readP: Any, ctx: Context, @HandlerCheck check: Int): Any = {
         SepEndBy1Handlers.accWhenCheckValidOrFailMarker(ctx, check, builder.asInstanceOf, readP.asInstanceOf)
     }
 

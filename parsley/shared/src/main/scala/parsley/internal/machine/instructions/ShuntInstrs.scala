@@ -53,7 +53,10 @@ private [internal] final class PrefixOp(f: Any => Any, val prec: Int) extends Op
     private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: ShuntJump): Int = {
         if (state.operators.nonEmpty && prec.compare(state.operators.peek.prec) < 0) {
             // This is a malformed expression
-            ctx.popHandler()
+            ctx match {
+                case ctx: InterpreterContext => ctx.popHandler()
+                case _ =>
+            }
             val width = shunt.restoreStateGetWidth(ctx)
             ctx.expectedFail(Nil, width)
         } else {
@@ -73,7 +76,10 @@ private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends O
     private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: ShuntJump): Int = {
         if (state.operators.nonEmpty && state.operators.peek.isPostfix && prec.compare(state.operators.peek.prec) > 0) {
             // This was an unexpected postfix operator
-            ctx.popHandler()
+            ctx match {
+                case ctx: InterpreterContext => ctx.popHandler()
+                case _ =>
+            }
             ctx.restoreState()
             shunt.produceResult(state)
             shunt.endLabel
@@ -126,7 +132,10 @@ private [internal] final class InfixNOp(f: (Any, Any) => Any, val prec: Int) ext
         reduceWhilePrecGreater(state, shunt)
         if (state.operators.nonEmpty && state.operators.peek.isInfixNonAssoc && state.operators.peek.prec == prec) {
             // This is a special case in which non-associative operators are chained
-            ctx.popHandler()
+            ctx match {
+                case ctx: InterpreterContext => ctx.popHandler()
+                case _ =>
+            }
             val width = shunt.restoreStateGetWidth(ctx)
             ctx.expectedFailWithReason(Nil, "operator cannot be applied in sequence as it is non-associative", width)
         } else {
@@ -187,10 +196,8 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
         token.handle(ctx, state, this)
     }
 
-    @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1))
+    @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1), afterActions = Array(JitImpl.Action.UpdateCheckOffset))
     def apply(token: Any, state: Any, ctx: Context): Int = {
-        ctx.updateCheckOffset()
-
         token.asInstanceOf[ShuntToken].handle(ctx, state.asInstanceOf, this)
     }
 
@@ -255,10 +262,8 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
     }
 
     @JitImpl(consumeOperands = 1)
-    def apply(stateIn: Any, ctx: Context): Any = {
+    def apply(stateIn: Any, ctx: Context, @HandlerCheck handlerCheck: Int): Any = {
         val state = stateIn.asInstanceOf[ShuntingYardState]
-        val handlerCheck = ctx.handlerCheck
-        ctx.popHandler()
         ctx.states = ctx.states.tail
         if (ctx.offset != handlerCheck || state.failOnNoConsumed) {
             // consumed input and/or prefix/atom choice did not match, hard failure

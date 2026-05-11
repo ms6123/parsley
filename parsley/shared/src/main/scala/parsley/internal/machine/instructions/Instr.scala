@@ -72,7 +72,7 @@ private [internal] final class Label(val i: Int) extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] trait RefailInstr {
+private [internal] trait RefailInstr extends SpecializedInstr {
     this: Instr =>
 
     def failStacksz(stacksz: Int): Int = stacksz

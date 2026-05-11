@@ -17,6 +17,7 @@ public @interface JitImpl {
     enum Action {
         PushTrue,
         Swap,
-        DupX1
+        DupX1,
+        UpdateCheckOffset
     }
 }

@@ -19,6 +19,7 @@ private val VOID_IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[Boole
 private object Methods {
     object Context {
         val IS_GOOD: Method = classOf[JitContext].getMethod("good")
+        val GET_OFFSET: Method = classOf[JitContext].getMethod("offset")
     }
 
     object Instr {
@@ -56,7 +57,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
             def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels(pos)
 
-            def performActions(instr: Instr, actions: Seq[AfterAction]): Unit = {
+            def handlerLocal(label: Int) = 1 + function.info.handlerSlots(label)
+
+            def performActions(actions: Seq[AfterAction]): Unit = {
                 for (action <- actions) {
                     action match {
                         case AfterAction.PopOperands(n) =>
@@ -66,21 +69,24 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             if (n % 2 == 1) {
                                 vis.visitInsn(Opcodes.POP)
                             }
+                        case AfterAction.PushHandler(label) =>
+                            loadContext()
+                            vis.callMethod(Methods.Context.GET_OFFSET)
+                            vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(label))
                     }
                 }
             }
 
             def jumpToSuccessors(pos: Int, successors: Seq[(Successor, Label)]): Unit = {
-                val instr = function.instrs(pos)
                 val fallThroughLabel = instrLabels.applyOrElse(pos + 1, _ => null)
 
                 successors match {
                     case Seq() =>
                         vis.visitJumpInsn(Opcodes.GOTO, successLabel)
                     case Seq((Successor(successorPc, afterActions), nextLabel)) if nextLabel eq fallThroughLabel =>
-                        performActions(instr, afterActions)
+                        performActions(afterActions)
                     case Seq((Successor(successorPc, afterActions), nextLabel)) =>
-                        performActions(instr, afterActions)
+                        performActions(afterActions)
                         vis.visitJumpInsn(Opcodes.GOTO, nextLabel)
                     case _ =>
                         successors match {
@@ -94,11 +100,11 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 } else {
                                     val fallThroughLabel = Label()
                                     vis.visitJumpInsn(Opcodes.IF_ICMPEQ, fallThroughLabel)
-                                    performActions(instr, jumpActions)
+                                    performActions(jumpActions)
                                     vis.visitJumpInsn(Opcodes.GOTO, jumpLabel)
                                     vis.visitLabel(fallThroughLabel)
                                 }
-                                performActions(instr, fallThroughActions)
+                                performActions(fallThroughActions)
                             case Seq((successor1, label1), (successor2, label2)) =>
                                 vis.loadInt(successor1.pc)
 
@@ -108,19 +114,19 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                         vis.visitJumpInsn(Opcodes.GOTO, label2)
                                     case (afterActions, Seq()) =>
                                         vis.visitJumpInsn(Opcodes.IF_ICMPNE, label2)
-                                        performActions(instr, afterActions)
+                                        performActions(afterActions)
                                         vis.visitJumpInsn(Opcodes.GOTO, label1)
                                     case (Seq(), afterActions) =>
                                         vis.visitJumpInsn(Opcodes.IF_ICMPEQ, label1)
-                                        performActions(instr, afterActions)
+                                        performActions(afterActions)
                                         vis.visitJumpInsn(Opcodes.GOTO, label2)
                                     case (afterActions1, afterActions2) =>
                                         val successor1Label = Label()
                                         vis.visitJumpInsn(Opcodes.IF_ICMPEQ, successor1Label)
-                                        performActions(instr, afterActions2)
+                                        performActions(afterActions2)
                                         vis.visitJumpInsn(Opcodes.GOTO, label2)
                                         vis.visitLabel(successor1Label)
-                                        performActions(instr, afterActions1)
+                                        performActions(afterActions1)
                                         vis.visitJumpInsn(Opcodes.GOTO, label1)
                                 }
                             case _ =>
@@ -134,7 +140,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                         val newLabel = Label()
                                         afterSwitchTasks += (() => {
                                             vis.visitLabel(newLabel)
-                                            performActions(instr, afterActions)
+                                            performActions(afterActions)
                                             vis.visitJumpInsn(Opcodes.GOTO, label)
                                         })
                                         newLabel
@@ -193,7 +199,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         } else {
                             val goodLabel = Label()
                             vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
-                            performActions(instr, badAfterActions)
+                            performActions(badAfterActions)
                             vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
                             vis.visitLabel(goodLabel)
                         }
@@ -217,7 +223,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             } else {
                                 val afterLabel = Label()
                                 vis.visitJumpInsn(Opcodes.IF_ACMPNE, afterLabel)
-                                performActions(instr, badAfterActions)
+                                performActions(badAfterActions)
                                 vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
                                 vis.visitLabel(afterLabel)
                             }
@@ -232,11 +238,22 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 goodPaths
                             } else {
                                 val Successor(fallThroughPc, fallThroughActions) = instrInfo.fallThroughPath.get
-                                require(fallThroughActions.isEmpty)
 
-                                vis.visitInsn(Opcodes.DUP)
-                                vis.loadObject(FallthroughMarker)
-                                vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(fallThroughPc))
+                                if (fallThroughActions.isEmpty) {
+                                    vis.visitInsn(Opcodes.DUP)
+                                    vis.loadObject(FallthroughMarker)
+                                    vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(fallThroughPc))
+                                } else {
+                                    val afterLabel = Label()
+                                    vis.visitInsn(Opcodes.DUP)
+                                    vis.loadObject(FallthroughMarker)
+                                    vis.visitJumpInsn(Opcodes.IF_ACMPNE, afterLabel)
+                                    
+                                    performActions(fallThroughActions)
+                                    
+                                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(fallThroughPc))
+                                    vis.visitLabel(afterLabel)
+                                }
 
                                 instrInfo.jumpPaths
                             }
@@ -255,6 +272,10 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 vis.visitInsn(Opcodes.SWAP)
                             case JitImpl.Action.DupX1 =>
                                 vis.visitInsn(Opcodes.DUP_X1)
+                            case JitImpl.Action.UpdateCheckOffset =>
+                                loadContext()
+                                vis.callMethod(Methods.Context.GET_OFFSET)
+                                vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
                         }
                     }
                 }
@@ -276,15 +297,18 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             vis.visitInsn(Opcodes.DUP_X2)
                             vis.visitInsn(Opcodes.POP)
                         case 3 =>
+                            val currentHandler = instrInfo.stackInfo.handlers.head.pc
+                            val localOffset = if (currentHandler == -1) 0 else handlerLocal(currentHandler)
+
                             val toStore = info.consumeOperands - 2
                             for (local <- toStore to 1 by -1) {
-                                vis.visitVarInsn(Opcodes.ASTORE, local)
+                                vis.visitVarInsn(Opcodes.ASTORE, local + localOffset)
                             }
                             vis.loadObject(instr)
                             vis.visitInsn(Opcodes.DUP_X2)
                             vis.visitInsn(Opcodes.POP)
                             for (local <- 1 to toStore) {
-                                vis.visitVarInsn(Opcodes.ALOAD, local)
+                                vis.visitVarInsn(Opcodes.ALOAD, local + localOffset)
                             }
                     }
 
@@ -294,6 +318,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         } else {
                             require(annotations.view.collect {
                                 case _: Pc => vis.loadInt(pos)
+                                case _: HandlerCheck => vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
                             }.sizeIs == 1)
                         }
                     }
@@ -302,6 +327,8 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                     performCustomActions(info.afterActions)
 
+                    performActions(instrInfo.afterActions)
+
                     jumpUsingReturnValue(method.getReturnType)
                 }
 
@@ -309,6 +336,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     case Call(id, producesResults) =>
                         loadContext()
                         vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, implDesc(producesResults), false)
+                        performActions(instrInfo.afterActions)
                         jumpUsingReturnValue(if (producesResults) classOf[AnyRef] else classOf[Boolean])
                     case Case(label) =>
                         val rightLabel = Label()
@@ -351,6 +379,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         loadContext()
                         vis.loadInt(pos)
                         vis.callMethod(Methods.Instr.APPLY)
+                        performActions(instrInfo.afterActions)
                         jumpToAllSuccessors()
                 }
             }

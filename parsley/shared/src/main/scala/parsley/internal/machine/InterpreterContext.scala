@@ -87,9 +87,9 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     
     override private [machine] def clearHints(): Unit = hints = EmptyHints
 
-    override private[machine] def handlerCheck = handlers.check
+    private[machine] def handlerCheck = handlers.check
 
-    override private[machine] def updateCheckOffset(): Unit = {
+    private[machine] def updateCheckOffset(): Unit = {
         handlers.check = offset
     }
 
@@ -223,15 +223,15 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
         stack.exchange(x)
     }
 
-    override private[machine] def pushHandler(label: Int): Unit = {
+    private[machine] def pushHandler(label: Int): Unit = {
         handlers = new InterpreterHandlerStack(calls, instrs, label, stack.usize, offset, hints, hintsValidOffset, handlers)
     }
 
-    override private[machine] def popHandler(): Unit = {
+    private[machine] def popHandler(): Unit = {
         handlers = handlers.tail
     }
 
-    override private[machine] def replaceHandler(label: Int): Unit = {
+    private[machine] def replaceHandler(label: Int): Unit = {
         handlers.pc = label
     }
 

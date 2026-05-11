@@ -42,26 +42,38 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
 }
 
 private [internal] object RestoreAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         // Pop input off head then fail to next handler
         ctx.restoreState()
         ctx.fail()
     }
+    
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.restoreState()
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "RestoreAndFail"
     // $COVERAGE-ON$
 }
 
-private [internal] object RestoreHintsAndState extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object RestoreHintsAndState extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.restoreHints()
         ctx.restoreState()
         ctx.popHandler()
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.restoreState()
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "RestoreHintsAndState"
     // $COVERAGE-ON$
@@ -72,25 +84,37 @@ private [internal] object RestoreHintsAndState extends Instr {
 }
 
 private [internal] object PopStateAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.states = ctx.states.tail
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.states = ctx.states.tail
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "PopStateAndFail"
     // $COVERAGE-ON$
 }
 
 private [internal] object PopStateRestoreHintsAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         ctx.popHandler()
         ctx.states = ctx.states.tail
         ctx.fail()
     }
+    
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.states = ctx.states.tail
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "PopStateRestoreHintsAndFail"
     // $COVERAGE-ON$
@@ -239,7 +263,6 @@ private [internal] object Span extends Instr with SpecializedInstr {
         // this uses the state stack because post #132 we will need a save point to obtain the start of the input
         val startOffset = ctx.states.offset
         ctx.states = ctx.states.tail
-        ctx.popHandler()
         ctx.input.substring(startOffset, ctx.offset)
     }
 

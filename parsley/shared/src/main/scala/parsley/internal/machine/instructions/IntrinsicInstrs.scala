@@ -259,7 +259,7 @@ private [internal] final case class Case(var label: Int) extends InstrWithLabel 
 }
 
 private [internal] object NegLookFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val reached = ctx.offset
         // Recover the previous state; notFollowedBy NEVER consumes input
@@ -269,13 +269,19 @@ private [internal] object NegLookFail extends Instr with RefailInstr {
         ctx.popHandler()
         ctx.expectedFail(None, reached - ctx.offset)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.restoreState()
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "NegLookFail"
     // $COVERAGE-ON$
 }
 
-private [internal] object NegLookGood extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object NegLookGood extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // Recover the previous state; notFollowedBy NEVER consumes input
         ctx.restoreState()
@@ -286,6 +292,12 @@ private [internal] object NegLookGood extends Instr {
         ctx.popError()
         pc + 1
     }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.restoreState()
+    }
+    
     // $COVERAGE-OFF$
     override def toString: String = "NegLookGood"
     // $COVERAGE-ON$
@@ -355,12 +367,12 @@ private [instructions] abstract class FilterLike extends Instr with SpecializedI
         this
     }
 
-    final def carryOn(ctx: Context): Unit = {
+    final def carryOn(ctx: InterpreterContext): Unit = {
         ctx.states = ctx.states.tail
         ctx.popHandler()
     }
 
-    final def fail(ctx: Context): Unit = {
+    final def fail(ctx: InterpreterContext): Unit = {
         ctx.replaceHandler(bad)
     }
 
@@ -393,11 +405,10 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
     @JitImpl(consumeOperands = 1)
     def apply(x: Any, ctx: Context): Any = {
         if (pred(x)) {
-            carryOn(ctx)
+            ctx.states = ctx.states.tail
             x
         }
         else {
-            fail(ctx)
             FallthroughMarker
         }
     }
@@ -433,11 +444,10 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
     def apply(x: Any, ctx: Context): Any = {
         val opt = pred(x)
         if (opt.isDefined) {
-            carryOn(ctx)
+            ctx.states = ctx.states.tail
             opt.get
         }
         else {
-            fail(ctx)
             FallthroughMarker
         }
     }
@@ -471,7 +481,6 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
     def apply(x: Any, ctx: Context): Any = {
         val state = ctx.states
         ctx.states = state.tail
-        ctx.popHandler()
         pred.applyOrElse(x, FilterPartial.orNull) match {
             case null => x
             case _ =>
@@ -511,7 +520,6 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
     def apply(x: Any, ctx: Context): Any = {
         val state = ctx.states
         ctx.states = state.tail
-        ctx.popHandler()
         pred(x) match {
             case Right(y) =>
                 y

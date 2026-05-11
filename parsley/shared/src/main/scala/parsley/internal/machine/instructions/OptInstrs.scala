@@ -119,7 +119,6 @@ private [internal] final class AlwaysRecoverWith[A](x: A) extends Instr with Spe
     @JitImpl
     def apply(ctx: Context): Any = {
         ctx.restoreState()
-        ctx.popHandler()
         x
     }
 
@@ -192,11 +191,11 @@ private [internal] final class JumpTableCharFunPred(val pred: Char => Boolean, v
 }
 
 private [internal] final class JumpTable
-    (jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var defaultMergeHandler: Int, private [this] var individualMergeHandler: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr {
+    (jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var defaultMergeHandler: Int, private [this] var individualMergeHandler: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
     private [this] var defaultPreamble: Int = _
     private [this] var jumpTableFuncs: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = _
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput) {
             val (dest, errorItems) = getRoot(ctx.peekChar, jumpTableFuncs)
@@ -213,6 +212,16 @@ private [internal] final class JumpTable
         else {
             addErrors(ctx, allErrorItems)
             ctx.pushHandler(defaultMergeHandler)
+            default
+        }
+    }
+
+    @JitImpl
+    def apply(ctx: Context): Int = {
+        if (ctx.moreInput) {
+            getRoot(ctx.peekChar, jumpTableFuncs)._1
+        }
+        else {
             default
         }
     }

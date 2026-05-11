@@ -10,8 +10,8 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{DefuncError, EmptyError}
 
-private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.offset == ctx.handlerCheck) ctx.replaceHint(labels)
         // COK
@@ -20,6 +20,10 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
         ctx.popHandler()
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"RelabelHints($labels)"
     // $COVERAGE-ON$
@@ -30,7 +34,7 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
 }
 
 private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         // this has the effect of relabelling all hints since the start of the label combinator
         ctx.restoreHints()
@@ -38,13 +42,17 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
         ctx.popHandler()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"RelabelErrorAndFail($labels)"
     // $COVERAGE-ON$
 }
 
-private [internal] object HideHints extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object HideHints extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         // according to old label logic, we do this unconditionally
         /*if (ctx.offset == ctx.handlerCheck)*/ ctx.popHints()
@@ -52,6 +60,10 @@ private [internal] object HideHints extends Instr {
         ctx.popHandler()
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = "HideHints"
     // $COVERAGE-ON$
@@ -63,25 +75,32 @@ private [internal] object HideHints extends Instr {
 
 // FIXME: Gigaparsec points out the hints aren't being used here, I believe they should be!
 private [internal] object HideErrorAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints()
         if (ctx.offset == ctx.handlerCheck) ctx.hideError()
         ctx.popHandler()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = "HideErrorAndFail"
     // $COVERAGE-ON$
 }
 
-private [internal] object ErrorToHints extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] object ErrorToHints extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.popHandler()
         ctx.addErrorToHintsAndPop()
         pc + 1
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "ErrorToHints"
@@ -93,12 +112,15 @@ private [internal] object ErrorToHints extends Instr {
 }
 
 private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.mergeErrors()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "MergeErrorsAndFail"
@@ -106,12 +128,15 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
 }
 
 private [internal] class ApplyReasonAndFail(reason: String) extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.applyReason(reason)
         ctx.popHandler()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = s"ApplyReasonAndFail($reason)"
@@ -119,13 +144,18 @@ private [internal] class ApplyReasonAndFail(reason: String) extends Instr with R
 }
 
 private [internal] class AmendAndFail private (partial: Boolean) extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.restoreHints() //TODO: verify this is ok; it feels more right than the restore on the labelling
         ctx.popHandler()
         ctx.amendError(partial)
         ctx.states = ctx.states.tail
         ctx.fail()
+    }
+
+    @JitImpl
+    def apply(ctx: Context): Unit = {
+        ctx.states = ctx.states.tail
     }
 
     // $COVERAGE-OFF$
@@ -139,12 +169,15 @@ private [internal] object AmendAndFail {
 }
 
 private [internal] object EntrenchAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.entrenchError()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "EntrenchAndFail"
@@ -152,12 +185,15 @@ private [internal] object EntrenchAndFail extends Instr with RefailInstr {
 }
 
 private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.popHandler()
         ctx.dislodgeError(n)
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = s"DislodgeAndFail($n)"
@@ -165,12 +201,15 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
 }
 
 private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.markErrorAsLexical()
         ctx.popHandler()
         ctx.fail()
     }
+
+    @JitImpl
+    def apply(): Unit = ()
 
     // $COVERAGE-OFF$
     override def toString: String = "SetLexicalAndFail"

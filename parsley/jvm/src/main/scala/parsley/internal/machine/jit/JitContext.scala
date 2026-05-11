@@ -18,17 +18,13 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
                                     input: String,
                                     numRegs: Int,
                                     sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
-    private[machine] val handlers = IntArrayStack()
-
     def run[Err: ErrorBuilder, A](): Result[Err, A] = {
         val result = startMethod.invokeExact(this)
         result match {
             case FailMarker =>
-                assert(handlers.isEmpty, "there must be no more handlers on end of parse")
                 assert(states.isEmpty, "there must be no residual states left at end of parse")
                 Failure(null.asInstanceOf[Err])
             case _ =>
-                assert(handlers.isEmpty, "there must be no more handlers on end of parse")
                 assert(states.isEmpty, "there must be no residual states left at end of parse")
                 Success(result.asInstanceOf[A])
         }
@@ -38,7 +34,6 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
 
     override private[machine] def catchNoConsumed(check: Int)(handler: => Int): Int = {
         if (offset != check) {
-            popHandler()
             fail()
         }
         else {
@@ -50,28 +45,11 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
 
     override private [machine] def fail(): Int = -1
 
-    override private[machine] def pushHandler(label: Int): Unit = {
-        handlers.push(offset)
-    }
-
-    override private[machine] def popHandler(): Unit = {
-        handlers.pop_()
-    }
-
-    override private[machine] def replaceHandler(label: Int): Unit = ()
-
-    override private[machine] def handlerCheck = handlers.peek
-
-    override private[machine] def updateCheckOffset(): Unit = {
-        handlers.exchange(this.offset)
-    }
-
     // $COVERAGE-OFF$
     override private[machine] def pretty: String = {
         s"""[
            |  input     = ${input.drop(offset)}
            |  pos       = ($line, $col)
-           |  handlers  = ${handlers.mkString(", ")}
            |  recstates = ${states.mkString(", ")}
            |  registers = ${regs.zipWithIndex.map { case (r, i) => s"r$i = $r" }.toList.mkString("\n              ")}
            |]""".stripMargin
@@ -112,25 +90,4 @@ private[jit] final class JitContext(private val startMethod: MethodHandle,
     override private[machine] def dislodgeError(n: Int): Unit = ()
 
     override private[machine] def markErrorAsLexical(): Unit = ()
-}
-
-private final class JitHandlerStack(var check: Int,
-                                    val tail: JitHandlerStack,
-                                   ) extends HandlerStack
-
-private [machine] object JitHandlerStack extends Stack[JitHandlerStack] {
-    type ElemTy = Int
-
-    // $COVERAGE-OFF$
-    implicit val inst: Stack[JitHandlerStack] = this
-
-    // TODO: needs to change
-    override protected def show(x: Int): String = {
-        s"Handler:(-${x + 1})"
-    }
-
-    override protected def head(xs: JitHandlerStack): ElemTy = xs.check
-
-    override protected def tail(xs: JitHandlerStack): JitHandlerStack = xs.tail
-    // $COVERAGE-ON$
 }

@@ -143,7 +143,7 @@ object Optimizer {
                 }
                 InstrInfo(instr, pos, stacks(pos), canSucceed, canFail)
             }.toArray
-            id -> new FunctionInfo(instrInfos)
+            id -> FunctionInfo(instrInfos)
         }.toMap
     }
 
