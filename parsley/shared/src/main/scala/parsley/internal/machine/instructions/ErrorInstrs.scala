@@ -21,7 +21,7 @@ private [internal] final class RelabelHints(labels: Iterable[String]) extends In
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -43,7 +43,7 @@ private [internal] final class RelabelErrorAndFail(labels: Iterable[String]) ext
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -61,7 +61,7 @@ private [internal] object HideHints extends Instr with SpecializedInstr {
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -83,7 +83,7 @@ private [internal] object HideErrorAndFail extends Instr with RefailInstr {
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -99,7 +99,7 @@ private [internal] object ErrorToHints extends Instr with SpecializedInstr {
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -119,7 +119,7 @@ private [internal] object MergeErrorsAndFail extends Instr with RefailInstr {
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -135,7 +135,7 @@ private [internal] class ApplyReasonAndFail(reason: String) extends Instr with R
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -176,7 +176,7 @@ private [internal] object EntrenchAndFail extends Instr with RefailInstr {
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -192,7 +192,7 @@ private [internal] class DislodgeAndFail(n: Int) extends Instr with RefailInstr 
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -208,7 +208,7 @@ private [internal] object SetLexicalAndFail extends Instr with RefailInstr {
         ctx.fail()
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -252,7 +252,7 @@ private [internal] final class VanillaGen[A](gen: parsley.errors.VanillaGen[A]) 
         ctx.fail(err.withReason(reason))
     }
     
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -272,7 +272,7 @@ private [internal] final class SpecializedGen[A](gen: parsley.errors.Specialized
         ctx.failWithMessage(new RigidCaret(gen.adjustWidth(x, caretWidth)), gen.messages(x)*)
     }
     
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$

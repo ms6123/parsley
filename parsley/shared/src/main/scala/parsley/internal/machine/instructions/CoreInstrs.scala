@@ -62,7 +62,7 @@ private [internal] object Pop extends Instr with SpecializedInstr {
         pc + 1
     }
 
-    @JitImpl(consumeOperands = 1)
+    @JitImpl(noop = true, consumeOperands = 1)
     def apply(@unused operand: Any): Unit = ()
 
     // $COVERAGE-OFF$
@@ -205,7 +205,7 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -226,7 +226,7 @@ private [internal] object PopHandler extends Instr with SpecializedInstr {
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -246,7 +246,7 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
         pc + 1
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -357,7 +357,7 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
         label
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$

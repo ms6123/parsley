@@ -286,44 +286,48 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                     performCustomActions(info.beforeActions)
 
-                    info.consumeOperands match {
-                        case 0 =>
-                            vis.loadObject(instr)
-                        case 1 =>
-                            vis.loadObject(instr)
-                            vis.visitInsn(Opcodes.SWAP)
-                        case 2 =>
-                            vis.loadObject(instr)
-                            vis.visitInsn(Opcodes.DUP_X2)
-                            vis.visitInsn(Opcodes.POP)
-                        case 3 =>
-                            val currentHandler = instrInfo.stackInfo.handlers.head.pc
-                            val localOffset = if (currentHandler == -1) 0 else handlerLocal(currentHandler)
+                    if (info.noop) {
+                        performActions(Seq(AfterAction.PopOperands(info.consumeOperands)))
+                    } else {
+                        info.consumeOperands match {
+                            case 0 =>
+                                vis.loadObject(instr)
+                            case 1 =>
+                                vis.loadObject(instr)
+                                vis.visitInsn(Opcodes.SWAP)
+                            case 2 =>
+                                vis.loadObject(instr)
+                                vis.visitInsn(Opcodes.DUP_X2)
+                                vis.visitInsn(Opcodes.POP)
+                            case 3 =>
+                                val currentHandler = instrInfo.stackInfo.handlers.head.pc
+                                val localOffset = if (currentHandler == -1) 0 else handlerLocal(currentHandler)
 
-                            val toStore = info.consumeOperands - 2
-                            for (local <- toStore to 1 by -1) {
-                                vis.visitVarInsn(Opcodes.ASTORE, local + localOffset)
-                            }
-                            vis.loadObject(instr)
-                            vis.visitInsn(Opcodes.DUP_X2)
-                            vis.visitInsn(Opcodes.POP)
-                            for (local <- 1 to toStore) {
-                                vis.visitVarInsn(Opcodes.ALOAD, local + localOffset)
-                            }
-                    }
-
-                    for ((ty, annotations) <- trailingParams) {
-                        if (ty eq classOf[Context]) {
-                            loadContext()
-                        } else {
-                            require(annotations.view.collect {
-                                case _: Pc => vis.loadInt(pos)
-                                case _: HandlerCheck => vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
-                            }.sizeIs == 1)
+                                val toStore = info.consumeOperands - 2
+                                for (local <- toStore to 1 by -1) {
+                                    vis.visitVarInsn(Opcodes.ASTORE, local + localOffset)
+                                }
+                                vis.loadObject(instr)
+                                vis.visitInsn(Opcodes.DUP_X2)
+                                vis.visitInsn(Opcodes.POP)
+                                for (local <- 1 to toStore) {
+                                    vis.visitVarInsn(Opcodes.ALOAD, local + localOffset)
+                                }
                         }
-                    }
 
-                    vis.callMethod(method)
+                        for ((ty, annotations) <- trailingParams) {
+                            if (ty eq classOf[Context]) {
+                                loadContext()
+                            } else {
+                                require(annotations.view.collect {
+                                    case _: Pc => vis.loadInt(pos)
+                                    case _: HandlerCheck => vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
+                                }.sizeIs == 1)
+                            }
+                        }
+
+                        vis.callMethod(method)
+                    }
 
                     performCustomActions(info.afterActions)
 

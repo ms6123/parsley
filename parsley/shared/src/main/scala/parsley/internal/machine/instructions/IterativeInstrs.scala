@@ -75,7 +75,7 @@ private [internal] final class SkipManyJump(var label: Int) extends InstrWithLab
         label
     }
 
-    @JitImpl(afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(noop = true, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$

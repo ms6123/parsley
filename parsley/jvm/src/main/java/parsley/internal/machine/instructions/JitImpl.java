@@ -8,6 +8,8 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface JitImpl {
+    boolean noop() default false;
+    
     int consumeOperands() default 0;
     
     Action[] beforeActions() default {};
