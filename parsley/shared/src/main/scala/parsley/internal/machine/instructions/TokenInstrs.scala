@@ -149,7 +149,7 @@ private [instructions] abstract class WhiteSpaceLike extends CommentLexer {
         pc + 1
     }
 
-    private [this] final val impl = {
+    private [this] final val impl: WhiteSpaceLike.Impl = {
         if (!lineAllowed && !multiAllowed) spacesAndContinue _
         else if (!lineAllowed) multisOnly _
         else if (!multiAllowed) singlesOnly _
@@ -161,6 +161,13 @@ private [instructions] abstract class WhiteSpaceLike extends CommentLexer {
         impl(ctx, pc)
     }
     protected def spaces(ctx: Context): Unit
+}
+
+private object WhiteSpaceLike {
+    @FunctionalInterface
+    private [WhiteSpaceLike] trait Impl {
+        def apply(ctx: Context, pc: Int): Int
+    }
 }
 
 private [internal] final class TokenWhiteSpace private (
