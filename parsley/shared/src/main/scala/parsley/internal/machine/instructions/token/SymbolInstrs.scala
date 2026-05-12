@@ -68,7 +68,7 @@ private object Specific {
     private [Specific] def computePosInfo(s: String): (Int, Int, Int, Int) = {
         val lastNL = s.lastIndexOf('\n')
         val lineInc = s.count(_ == '\n')
-        val suffix = if lastNL < 0 then s else s.substring(lastNL + 1)
+        val suffix = if (lastNL < 0) s else s.substring(lastNL + 1)
 
         val firstTab = suffix.indexOf('\t')
         if (firstTab < 0) {

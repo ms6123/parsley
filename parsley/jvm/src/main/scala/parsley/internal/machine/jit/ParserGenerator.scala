@@ -7,14 +7,10 @@ import scala.collection.mutable
 
 import parsley.internal.machine.Context
 import parsley.internal.machine.instructions.*
+import parsley.internal.machine.instructions.JitImpl.Param
+import parsley.internal.machine.jit.ParserGenerator.Constants.*
 
 import org.objectweb.asm.{Label, Opcodes, Type}
-
-private val JIT_CONTEXT = Type.getType(classOf[JitContext])
-private val CONTEXT = Type.getType(classOf[Context])
-private val IMPL_NAME = "parse"
-private val IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
-private val VOID_IMPL_DESC = Type.getMethodDescriptor(Type.getType(classOf[Boolean]), JIT_CONTEXT)
 
 private object Methods {
     object Context {
@@ -33,12 +29,22 @@ private object Methods {
 
     object Builder {
         val RESULT: Method = classOf[mutable.Builder[?, ?]].getMethod("result")
-        val ADD_ONE: Method = classOf[mutable.Builder[?, ?]].getMethod("addOne", classOf[Any])
+        val ADD_ONE: Method = classOf[mutable.Builder[?, ?]].getMethod("$plus$eq", classOf[Any])
+    }
+}
+
+private object ParserGenerator {
+    object Constants {
+        val JIT_CONTEXT: Type = Type.getType(classOf[JitContext])
+        val CONTEXT: Type = Type.getType(classOf[Context])
+        val IMPL_NAME = "parse"
+        val IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
+        val VOID_IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[Boolean]), JIT_CONTEXT)
     }
 }
 
 private[jit] class ParserGenerator(private val functions: Array[ParserFunction]) {
-    private val ctx = ClassGenContext()
+    private val ctx = new ClassGenContext()
     private val functionsById = functions.view.map(it => it.id -> it).toMap
 
     def generate(): MethodHandle = {
@@ -49,9 +55,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
     private def generate(function: ParserFunction): Class[?] =
         ctx.newClass(Opcodes.ACC_PUBLIC, className(function.id)) { classVisitor =>
             val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, IMPL_NAME, implDesc(function.producesResults), null, null)
-            val instrLabels = function.instrs.map(_ => Label())
-            val successLabel = Label()
-            val failureLabel = Label()
+            val instrLabels = function.instrs.map(_ => new Label())
+            val successLabel = new Label()
+            val failureLabel = new Label()
 
             def loadContext(): Unit = vis.visitVarInsn(Opcodes.ALOAD, 0)
 
@@ -80,7 +86,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
             }
 
             def jumpToSuccessors(pos: Int, successors: Seq[(Successor, Label)]): Unit = {
-                val fallThroughLabel = instrLabels.applyOrElse(pos + 1, _ => null)
+                val fallThroughLabel = instrLabels.applyOrElse(pos + 1, (_: Int) => null)
 
                 successors match {
                     case Seq() =>
@@ -100,7 +106,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 if (jumpActions.isEmpty) {
                                     vis.visitJumpInsn(Opcodes.IF_ICMPNE, jumpLabel)
                                 } else {
-                                    val fallThroughLabel = Label()
+                                    val fallThroughLabel = new Label()
                                     vis.visitJumpInsn(Opcodes.IF_ICMPEQ, fallThroughLabel)
                                     performActions(jumpActions)
                                     vis.visitJumpInsn(Opcodes.GOTO, jumpLabel)
@@ -123,7 +129,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                         performActions(afterActions)
                                         vis.visitJumpInsn(Opcodes.GOTO, label2)
                                     case (afterActions1, afterActions2) =>
-                                        val successor1Label = Label()
+                                        val successor1Label = new Label()
                                         vis.visitJumpInsn(Opcodes.IF_ICMPEQ, successor1Label)
                                         performActions(afterActions2)
                                         vis.visitJumpInsn(Opcodes.GOTO, label2)
@@ -132,14 +138,13 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                         vis.visitJumpInsn(Opcodes.GOTO, label1)
                                 }
                             case _ =>
-                                val keys = successors.toArray
-                                keys.sortInPlaceBy(_._1.pc)
+                                val keys = successors.sortBy(_._1.pc).toArray
                                 val afterSwitchTasks = mutable.Buffer.empty[() => Unit]
 
                                 val switchLabels = keys.map {
                                     case (Successor(pc, Seq()), label) => label
                                     case (Successor(pc, afterActions), label) =>
-                                        val newLabel = Label()
+                                        val newLabel = new Label()
                                         afterSwitchTasks += (() => {
                                             vis.visitLabel(newLabel)
                                             performActions(afterActions)
@@ -172,7 +177,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     successorLabels ++= instrInfo.badPath.map(it => Successor(-1, it.afterActions) -> labelForPos(it.pc))
 
                     val result = successorLabels.result()
-                    if (result.sizeIs <= 1) {
+                    if (result.size <= 1) {
                         // No need for pc
                         vis.visitInsn(Opcodes.POP)
                     }
@@ -186,9 +191,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     }
 
                     if (returnType eq classOf[Boolean]) {
-                        require(instrInfo.allPaths.sizeIs <= 2 && (instrInfo.jumpPaths.isEmpty || instrInfo.fallThroughPath.isEmpty))
+                        require(instrInfo.allPaths.size <= 2 && (instrInfo.jumpPaths.isEmpty || instrInfo.fallThroughPath.isEmpty))
 
-                        if (instrInfo.allPaths.sizeIs <= 1) {
+                        if (instrInfo.allPaths.size <= 1) {
                             vis.visitInsn(Opcodes.POP)
                             jumpToSuccessors(pos, instrInfo.allPaths.map(it => it -> labelForPos(it.pc)))
                             return
@@ -199,7 +204,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         if (badAfterActions.isEmpty) {
                             vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
                         } else {
-                            val goodLabel = Label()
+                            val goodLabel = new Label()
                             vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
                             performActions(badAfterActions)
                             vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
@@ -223,7 +228,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             if (badAfterActions.isEmpty) {
                                 vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(badPc))
                             } else {
-                                val afterLabel = Label()
+                                val afterLabel = new Label()
                                 vis.visitJumpInsn(Opcodes.IF_ACMPNE, afterLabel)
                                 performActions(badAfterActions)
                                 vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
@@ -236,7 +241,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         case t if t == classOf[Unit] =>
                             goodPaths
                         case t if t == classOf[Any] =>
-                            if (goodPaths.sizeIs <= 1) {
+                            if (goodPaths.size <= 1) {
                                 goodPaths
                             } else {
                                 val Successor(fallThroughPc, fallThroughActions) = instrInfo.fallThroughPath.get
@@ -246,7 +251,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                     vis.loadObject(FallthroughMarker)
                                     vis.visitJumpInsn(Opcodes.IF_ACMPEQ, labelForPos(fallThroughPc))
                                 } else {
-                                    val afterLabel = Label()
+                                    val afterLabel = new Label()
                                     vis.visitInsn(Opcodes.DUP)
                                     vis.loadObject(FallthroughMarker)
                                     vis.visitJumpInsn(Opcodes.IF_ACMPNE, afterLabel)
@@ -261,7 +266,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             }
                     }
 
-                    require(possiblePaths.sizeIs <= 1)
+                    require(possiblePaths.size <= 1)
                     jumpToSuccessors(pos, possiblePaths.map(it => it -> labelForPos(it.pc)))
                 }
                 
@@ -286,7 +291,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                 def applySpecialized(instr: Instr & SpecializedInstr): Unit = {
                     val (method, info) = InstructionImpls.getImpl(instr)
-                    val trailingParams = method.getParameterTypes.view.zip(method.getParameterAnnotations).drop(info.consumeOperands).toArray
+                    val trailingParams = method.getParameterTypes.view.drop(info.consumeOperands).toArray
 
                     performCustomActions(info.beforeActions)
 
@@ -319,15 +324,15 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 }
                         }
 
-                        for ((ty, annotations) <- trailingParams) {
+                        val paramInfos = info.params.iterator
+                        for (ty <- trailingParams) {
                             if (ty eq classOf[Context]) {
                                 loadContext()
                             } else {
-                                require(annotations.view.collect {
-                                    case _: Pc => vis.loadInt(pos)
-                                    case _: HandlerCheck =>
-                                        vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc).get)
-                                }.sizeIs == 1)
+                                paramInfos.next() match {
+                                    case Param.Pc => vis.loadInt(pos)
+                                    case Param.HandlerCheck => vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc).get)
+                                }
                             }
                         }
 
@@ -348,7 +353,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         performActions(instrInfo.afterActions)
                         jumpUsingReturnValue(if (producesResults) classOf[AnyRef] else classOf[Boolean])
                     case Case(label) =>
-                        val rightLabel = Label()
+                        val rightLabel = new Label()
 
                         vis.visitInsn(Opcodes.DUP)
                         vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(classOf[Left[?, ?]]))
@@ -362,15 +367,15 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Right[?, ?]]))
                         vis.callMethod(Methods.Either.RIGHT_VALUE)
                     case ManyUntil(label) =>
-                        val stopLabel = Label()
+                        val stopLabel = new Label()
 
                         vis.visitInsn(Opcodes.SWAP)
                         vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[mutable.Builder[?, ?]]))
                         vis.visitInsn(Opcodes.SWAP)
 
                         vis.visitInsn(Opcodes.DUP)
-                        vis.visitTypeInsn(Opcodes.INSTANCEOF, Type.getInternalName(classOf[ManyUntil.Stop.type]))
-                        vis.visitJumpInsn(Opcodes.IFNE, stopLabel)
+                        vis.loadObject(ManyUntil.Stop)
+                        vis.visitJumpInsn(Opcodes.IF_ACMPEQ, stopLabel)
 
                         vis.callMethod(Methods.Builder.ADD_ONE)
                         vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))

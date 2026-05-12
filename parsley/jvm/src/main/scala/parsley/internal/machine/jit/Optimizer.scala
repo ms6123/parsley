@@ -9,10 +9,9 @@ import parsley.internal.machine.instructions.*
 
 import parsley.{Failure, Result, Success}
 
-private val IS_ENABLED = System.getProperty("parsley.jit.enabled", "true").toBoolean
-private val GEN_PACKAGE = "parsley/internal/machine/jit/gen/blocks/"
-
 object Optimizer {
+    private val IS_ENABLED: Boolean = System.getProperty("parsley.jit.enabled", "true").toBoolean
+
     val useTco: Boolean = !IS_ENABLED
     val allowInlining: Boolean = !IS_ENABLED
 
@@ -41,9 +40,9 @@ object Optimizer {
             }
         }
 
-        val producesResults = instrs.view.collect {
+        val producesResults = (instrs.iterator.collect {
             case Call(id, producesResults) => id -> producesResults
-        }.concat(Seq(0 -> true)).toMap
+        } ++ Iterator.single(0 -> true)).toMap
 
         val functions = functionRanges.view.map { funcRange =>
             for (i <- funcRange) {
@@ -53,7 +52,7 @@ object Optimizer {
                 }
             }
 
-            val funcInstrs = mutable.ArrayBuffer.from(instrs.view.slice(funcRange.start, funcRange.last + 1))
+            val funcInstrs = mutable.ArrayBuffer.empty[Instr] ++= instrs.view.slice(funcRange.start, funcRange.last + 1)
             val copiedHandlers = mutable.Map.empty[Int, Int]
 
             for (instr <- funcRange.view.map(instrs) if !instr.isInstanceOf[Call]) {
@@ -76,13 +75,13 @@ object Optimizer {
 
         val analysis = analyzeAll(functions)
 
-        val startMethod = ParserGenerator(
-            functionRanges.view.map(_.start).map(id => ParserFunction(id, functions(id), producesResults(id), analysis(id))).toArray
+        val startMethod = new ParserGenerator(
+            functionRanges.view.map(_.start).map(id => new ParserFunction(id, functions(id), producesResults(id), analysis(id))).toArray
         ).generate()
 
         new ParseRunner {
             override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
-                JitContext(startMethod, input, numRegs, sourceFile).run() match {
+                new JitContext(startMethod, input, numRegs, sourceFile).run() match {
                     case success: Success[?] => success
                     case Failure(_) =>
                         System.err.println(s"Falling back to interpreter")
@@ -102,7 +101,7 @@ object Optimizer {
         for (i <- 0 until instrs.indices.last) {
             (instrs(i), instrs(i + 1)) match {
                 case (Call(callId, _), Return) if callId == funcRange.start =>
-                    instrs(i) = Jump(0)
+                    instrs(i) = new Jump(0)
                 case _ =>
             }
         }
@@ -111,15 +110,15 @@ object Optimizer {
     private def analyzeAll(funcById: Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
         val callers = {
             val m = scala.collection.mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
-            for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs) {
+            for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs.filter(_.isInstanceOf[Call])) {
                 m(id) = m(id) + callerId
             }
             m.toMap.withDefaultValue(Set.empty)
         }
 
-        val state = mutable.Map.from(funcById.keySet.view.map(_ -> (false, false)))
-        val inQueue = mutable.Set.from(funcById.keySet)
-        val queue = mutable.Queue.from(funcById.keySet)
+        val state = mutable.Map.empty[Int, (Boolean, Boolean)] ++= funcById.keySet.view.map(_ -> (false, false))
+        val inQueue = mutable.Set.empty[Int] ++= funcById.keySet
+        val queue = mutable.Queue.empty[Int] ++= funcById.keySet
 
         while (queue.nonEmpty) {
             val id = queue.dequeue()
@@ -185,7 +184,7 @@ object Optimizer {
             }
         }
 
-        AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
+        new AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
     }
 }
 

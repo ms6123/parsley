@@ -15,11 +15,18 @@ public @interface JitImpl {
     Action[] beforeActions() default {};
     
     Action[] afterActions() default {};
+
+    Param[] params() default {};
     
     enum Action {
         PushTrue,
         Swap,
         DupX1,
         UpdateCheckOffset
+    }
+
+    enum Param {
+        Pc,
+        HandlerCheck
     }
 }

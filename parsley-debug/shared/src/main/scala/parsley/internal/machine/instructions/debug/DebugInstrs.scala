@@ -34,7 +34,7 @@ private [internal] class EnterParser(var label: Int, origin: LazyParsley[?], isI
     override def toString: String = s"EnterParser(exit: $label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = EnterParser(label, origin, isIterative, userAssignedName)(dbgCtx)
+    override def copy: Instr = new EnterParser(label, origin, isIterative, userAssignedName)(dbgCtx)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
@@ -100,7 +100,7 @@ private [internal] class TakeSnapshot(var label: Int, origin: LazyParsley[?], us
     override def toString: String = s"TakeSnapshot(until: $label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = TakeSnapshot(label, origin, userAssignedName)(dtx)
+    override def copy: Instr = new TakeSnapshot(label, origin, userAssignedName)(dtx)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 

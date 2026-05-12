@@ -2,7 +2,8 @@ package parsley.internal.machine.jit
 
 import scala.collection.mutable
 
-import parsley.internal.machine.instructions.{HandlerCheck, HandlerInfo, Instr, SpecializedInstr, StackInfo}
+import parsley.internal.machine.instructions.{HandlerInfo, Instr, SpecializedInstr, StackInfo}
+import parsley.internal.machine.instructions.JitImpl.Param
 
 class FunctionInfo(val instrInfos: Array[Option[InstrInfo]], val handlerSlots: Map[Int, Int])
 
@@ -15,7 +16,7 @@ object FunctionInfo {
         val usedHandlers = instrs.view
             .zip(instrInfos)
             .collect { case (specialized: SpecializedInstr, Some(info)) => (specialized, info) }
-            .filter { case (instr, _) => InstructionImpls.getImpl(instr)._1.getParameterAnnotations.view.flatten.exists(_.isInstanceOf[HandlerCheck]) }
+            .filter { case (instr, _) => InstructionImpls.getImpl(instr)._2.params.contains(Param.HandlerCheck) }
             .map(_._2.stackInfo.handlers.head.pc)
             .toSet
 
@@ -36,9 +37,11 @@ object FunctionInfo {
     }
 }
 
-enum AfterAction {
-    case PopOperands(n: Int)
-    case PushHandler(label: Int)
+sealed trait AfterAction
+
+object AfterAction {
+    case class PopOperands(n: Int) extends AfterAction
+    case class PushHandler(label: Int) extends AfterAction
 }
 
 case class Successor(pc: Int, afterActions: Seq[AfterAction])

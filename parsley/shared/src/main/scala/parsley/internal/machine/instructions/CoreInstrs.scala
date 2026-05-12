@@ -5,13 +5,13 @@
  */
 package parsley.internal.machine.instructions
 
-import scala.annotation.unused
-
 import parsley.XAssert.*
 
+import org.typelevel.scalaccompat.annotation.unused
 import parsley.internal.machine.{Context, InterpreterContext, ParseRunner}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, EmptyHints}
+import parsley.internal.machine.instructions.JitImpl.Param
 
 // Stack Manipulators
 private [internal] final class Push[A](x: A) extends Instr with SpecializedInstr {
@@ -224,7 +224,7 @@ private [internal] final class PushHandler(var label: Int) extends InstrWithLabe
     override def toString: String = s"PushHandler($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = PushHandler(label)
+    override def copy: Instr = new PushHandler(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
@@ -265,7 +265,7 @@ private [internal] final class PushHandlerAndClearHints(var label: Int) extends 
     override def toString: String = s"PushHandlerAndClearHints($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = PushHandlerAndClearHints(label)
+    override def copy: Instr = new PushHandlerAndClearHints(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
@@ -290,7 +290,7 @@ private [internal] final class PushHandlerAndStateAndClearHints(var label: Int) 
     override def toString: String = s"PushHandlerAndStateAndClearHints($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = PushHandlerAndStateAndClearHints(label)
+    override def copy: Instr = new PushHandlerAndStateAndClearHints(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
@@ -314,7 +314,7 @@ private [internal] final class PushHandlerAndState(var label: Int) extends Instr
     override def toString: String = s"PushHandlerAndState($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = PushHandlerAndState(label)
+    override def copy: Instr = new PushHandlerAndState(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers))
 
@@ -356,7 +356,7 @@ private [internal] final class Jump(var label: Int) extends InstrWithLabel with 
     override def toString: String = s"Jump($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = Jump(label)
+    override def copy: Instr = new Jump(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
@@ -380,7 +380,7 @@ private [internal] final class JumpAndPopCheck(var label: Int) extends InstrWith
     override def toString: String = s"JumpAndPopCheck($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = JumpAndPopCheck(label)
+    override def copy: Instr = new JumpAndPopCheck(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
@@ -406,7 +406,7 @@ private [internal] final class JumpAndPopState(var label: Int) extends InstrWith
     override def toString: String = s"JumpAndPopState($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = JumpAndPopState(label)
+    override def copy: Instr = new JumpAndPopState(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
@@ -425,8 +425,8 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel with
         }
     }
 
-    @JitImpl
-    def apply(ctx: Context, @Pc pc: Int, @HandlerCheck check: Int): Int = {
+    @JitImpl(params = Array(Param.Pc, Param.HandlerCheck))
+    def apply(ctx: Context, pc: Int, check: Int): Int = {
         ctx.catchNoConsumed(check) {
             pc + 1
         }
@@ -436,7 +436,7 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel with
     override def toString: String = s"Catch($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = Catch(label)
+    override def copy: Instr = new Catch(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers.tail))
 
@@ -462,7 +462,7 @@ private [internal] final class RestoreAndPushHandler(var label: Int) extends Ins
     override def toString: String = s"RestoreAndPushHandler($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = RestoreAndPushHandler(label)
+    override def copy: Instr = new RestoreAndPushHandler(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, HandlerInfo(label, stacksz) :: handlers.tail))
 

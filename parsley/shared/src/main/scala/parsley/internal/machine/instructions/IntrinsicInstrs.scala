@@ -17,6 +17,7 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
+import parsley.internal.machine.instructions.JitImpl.Param
 
 private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
@@ -216,8 +217,8 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
         else pc + 1
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(condition: Any, @Pc pc: Int): Int = {
+    @JitImpl(consumeOperands = 1, params = Array(Param.Pc))
+    def apply(condition: Any, pc: Int): Int = {
         if (condition.asInstanceOf[Boolean]) label
         else pc + 1
     }
@@ -226,7 +227,7 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
     override def toString: String = s"If(true: $label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = If(label)
+    override def copy: Instr = new If(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 
@@ -417,7 +418,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
     override def toString: String = s"Filter(???, good = $good)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = Filter(pred, good, bad)
+    override def copy: Instr = new Filter(pred, good, bad)
 }
 
 private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: Int, var bad: Int) extends FilterLike {
@@ -456,7 +457,7 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
     override def toString: String = s"MapFilter(???, good = $good)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = MapFilter(pred, good, bad)
+    override def copy: Instr = new MapFilter(pred, good, bad)
 }
 
 private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr with SpecializedInstr {

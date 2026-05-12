@@ -12,13 +12,17 @@ import parsley.XAssert.*
 // $COVERAGE-OFF$
 private [machine] object XAssert {
     @elidable(ASSERTION) @inline
-    final def ensureRegularInstruction(ctx: Context): Unit = {
-        assert(ctx.good && ctx.running, s"regular instructions can only be executed when the status is Good, it is ${ctx.status}")
+    final def ensureRegularInstruction(ctx: Context): Unit = ctx match {
+        case ctx: InterpreterContext =>
+            assert(ctx.status eq Good, s"regular instructions can only be executed when the status is Good, it is ${ctx.status}")
+        case _ =>
     }
 
     @elidable(ASSERTION) @inline
-    final def ensureHandlerInstruction(ctx: Context): Unit = {
-        assert(!ctx.good && ctx.running, s"handler instructions can only be executed when the status is Recover, it is ${ctx.status}")
+    final def ensureHandlerInstruction(ctx: Context): Unit = ctx match {
+        case ctx: InterpreterContext =>
+            assert(ctx.status eq Recover, s"handler instructions can only be executed when the status is Recover, it is ${ctx.status}")
+        case _ =>
     }
 }
 // $COVERAGE-ON$

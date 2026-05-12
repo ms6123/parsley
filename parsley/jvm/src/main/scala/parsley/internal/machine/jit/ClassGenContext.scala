@@ -5,24 +5,20 @@ import java.lang.reflect.{Method, Modifier}
 import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
-import scala.reflect.ClassTag
 
 import parsley.internal.machine.jit.ClassGenContext.objectPools
+import parsley.internal.machine.jit.ClassGenContext.Constants.*
 
 import org.objectweb.asm.*
 import org.objectweb.asm.util.CheckClassAdapter
 
-private val SHOULD_DUMP_CLASSES = System.getProperty("parsley.jit.dump", "false").toBoolean
-private val JIT_RUNTIME = Type.getInternalName(classOf[JitRuntime])
-private val GET_OBJECT = classOf[JitRuntime].getMethod("getObject", classOf[Class[?]], classOf[String], classOf[Int])
-
 class ClassGenContext {
-    private val classLoader = OpenClassLoader(getClass.getClassLoader)
+    private val classLoader = new OpenClassLoader(getClass.getClassLoader)
 
     def newClass(access: Int, name: String, superName: String = "java/lang/Object", interfaces: Seq[String] = Seq.empty)
                 (builder: ClassGenVisitor => Unit): Class[?] = {
-        val writer = ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        val visitor = ClassGenVisitor(CheckClassAdapter(writer), name)
+        val writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES)
+        val visitor = new ClassGenVisitor(new CheckClassAdapter(writer), name)
         visitor.visit(Opcodes.V1_8, access, name, null, superName, interfaces.toArray)
         builder(visitor)
         visitor.visitEnd()
@@ -43,7 +39,7 @@ class ClassGenContext {
         private[ClassGenContext] val objectTypes = mutable.ArrayBuffer.empty[Class[?]]
 
         override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodGenVisitor = {
-            MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), className) { case (obj, clazz) =>
+            new MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), className, { case (obj, clazz) =>
                 val index = existingObjects.getOrElseUpdate(obj, {
                     objectPool += obj
                     objectTypes += clazz
@@ -51,7 +47,7 @@ class ClassGenContext {
                 })
 
                 obj.getClass.getSimpleName + index
-            }
+            })
         }
 
         override def visitEnd(): Unit = {
@@ -78,7 +74,7 @@ class ClassGenContext {
         }
     }
 
-    class MethodGenVisitor(delegate: MethodVisitor, private val className: String)(private val registerObject: (AnyRef, Class[?]) => String) extends MethodVisitor(Opcodes.ASM9, delegate) {
+    class MethodGenVisitor(delegate: MethodVisitor, private val className: String, private val registerObject: (AnyRef, Class[?]) => String) extends MethodVisitor(Opcodes.ASM9, delegate) {
         visitCode()
 
         def loadObject(obj: AnyRef): Unit = {
@@ -129,6 +125,12 @@ class ClassGenContext {
 }
 
 object ClassGenContext {
+    private[jit] object Constants {
+        val SHOULD_DUMP_CLASSES: Boolean = System.getProperty("parsley.jit.dump", "false").toBoolean
+        val JIT_RUNTIME: String = Type.getInternalName(classOf[JitRuntime])
+        val GET_OBJECT: Method = classOf[JitRuntime].getMethod("getObject", classOf[Class[?]], classOf[String], classOf[Int])
+    }
+
     private val objectPools = mutable.WeakHashMap.empty[Class[?], Array[AnyRef]]
 
     def getObject(index: Int, context: Class[?]): AnyRef = {

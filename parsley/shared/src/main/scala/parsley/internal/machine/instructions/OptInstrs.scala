@@ -167,7 +167,7 @@ private [internal] final class JumpTableCharMapPred(val map: mutable.Map[Char, (
     def relabelThis(labels: Int => Int): Unit = {
         val _ = map.mapValuesInPlaceCompat { case (_, (i, errs)) => (labels(i), errs) }
     }
-    override def copy: JumpTablePreds = JumpTableCharMapPred(map.clone, copyNext)
+    override def copy: JumpTablePreds = new JumpTableCharMapPred(map.clone, copyNext)
     override protected def ownLabels: Seq[Int] = map.values.map(_._1).toSeq
     def toPartialFunction: PartialFunction[Char, (Int, Iterable[ExpectItem])] = map.toMap
 
@@ -177,7 +177,7 @@ private [internal] final class JumpTableCharMapPred(val map: mutable.Map[Char, (
 }
 private [internal] final class JumpTableCharFunPred(val pred: Char => Boolean, var label: Int, val errors: Iterable[ExpectItem], val next: JumpTablePreds) extends JumpTablePreds{
     def relabelThis(labels: Int => Int): Unit = this.label = labels(this.label)
-    override def copy: JumpTablePreds = JumpTableCharFunPred(pred, label, errors, copyNext)
+    override def copy: JumpTablePreds = new JumpTableCharFunPred(pred, label, errors, copyNext)
     override protected def ownLabels: Seq[Int] = Seq(label)
     def toPartialFunction: PartialFunction[Char, (Int, Iterable[ExpectItem])] = {
         val labelErrs = (label, errors)
@@ -257,7 +257,7 @@ private [internal] final class JumpTable
     override def toString: String = s"JumpTable($jumpTable, _ -> $default, $defaultMergeHandler, $individualMergeHandler)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = JumpTable(jumpTable.copy, default, defaultMergeHandler, individualMergeHandler, size, allErrorItems)
+    override def copy: Instr = new JumpTable(jumpTable.copy, default, defaultMergeHandler, individualMergeHandler, size, allErrorItems)
 
     override def labels: Seq[Int] = defaultPreamble +: defaultMergeHandler +: individualMergeHandler +: default +: jumpTable.labels
 

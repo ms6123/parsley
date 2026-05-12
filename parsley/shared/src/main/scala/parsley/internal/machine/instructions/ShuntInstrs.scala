@@ -12,6 +12,7 @@ import parsley.internal.machine.stacks.ArrayStack
 import scala.annotation.tailrec
 
 import parsley.internal.machine.XAssert.{ensureHandlerInstruction, ensureRegularInstruction}
+import parsley.internal.machine.instructions.JitImpl.Param
 
 private [internal] sealed abstract class ShuntToken {
     private [instructions] def handle(ctx: Context, state: ShuntingYardState, shunt: ShuntJump): Int
@@ -198,7 +199,7 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
 
     @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1), afterActions = Array(JitImpl.Action.UpdateCheckOffset))
     def apply(token: Any, state: Any, ctx: Context): Int = {
-        token.asInstanceOf[ShuntToken].handle(ctx, state.asInstanceOf, this)
+        token.asInstanceOf[ShuntToken].handle(ctx, state.asInstanceOf[ShuntingYardState], this)
     }
 
     private [instructions] final def gotoPreAtom(ctx: Context, state: ShuntingYardState): Int = {
@@ -226,7 +227,7 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
         this
     }
 
-    override def copy: Instr = ShuntJump(prefixAtomLabel, postfixInfixLabel, endLabel, wraps)
+    override def copy: Instr = new ShuntJump(prefixAtomLabel, postfixInfixLabel, endLabel, wraps)
 
     override def labels: Seq[Int] = Seq(prefixAtomLabel, postfixInfixLabel, endLabel)
 
@@ -261,8 +262,8 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
         }
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(stateIn: Any, ctx: Context, @HandlerCheck handlerCheck: Int): Any = {
+    @JitImpl(consumeOperands = 1, params = Array(Param.HandlerCheck))
+    def apply(stateIn: Any, ctx: Context, handlerCheck: Int): Any = {
         val state = stateIn.asInstanceOf[ShuntingYardState]
         ctx.states = ctx.states.tail
         if (ctx.offset != handlerCheck || state.failOnNoConsumed) {
@@ -274,7 +275,7 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
         }
     }
 
-    override def copy: Instr = ShuntHandler(wraps)
+    override def copy: Instr = new ShuntHandler(wraps)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
