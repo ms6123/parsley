@@ -53,6 +53,13 @@ private [internal] trait SpecializedInstr {
     }
 }
 
+private [internal] trait IntrinsicInstr extends SpecializedInstr {
+    this: Instr =>
+
+    @JitImpl
+    def apply(): Unit = throw new UnsupportedOperationException("Intrinsic")
+}
+
 private [internal] abstract class InstrWithLabel extends Instr {
     var label: Int
     override def relabel(labels: Int => Int): this.type = {

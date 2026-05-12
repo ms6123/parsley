@@ -155,7 +155,7 @@ private [internal] object Halt extends Instr with SpecializedInstr {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final case class Call(var label: Int, producesResults: Boolean) extends InstrWithLabel with SpecializedInstr {
+private [internal] final case class Call(var label: Int, producesResults: Boolean) extends InstrWithLabel with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.call(label)

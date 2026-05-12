@@ -391,7 +391,7 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 }
 
-private [internal] final case class ManyUntil(var label: Int) extends InstrWithLabel with SpecializedInstr {
+private [internal] final case class ManyUntil(var label: Int) extends InstrWithLabel with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {

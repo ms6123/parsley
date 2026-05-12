@@ -1,36 +1,38 @@
 package parsley.internal.machine.jit
 
-import parsley.internal.machine.instructions.{HandlerInfo, Instr, StackInfo}
+import scala.collection.mutable
+
+import parsley.internal.machine.instructions.{HandlerCheck, HandlerInfo, Instr, SpecializedInstr, StackInfo}
 
 class FunctionInfo(val instrInfos: Array[Option[InstrInfo]], val handlerSlots: Map[Int, Int])
 
 object FunctionInfo {
-    def apply(instrInfos: Array[Option[InstrInfo]]): FunctionInfo = {
-        val handlerTree = instrInfos.view
-            .flatten
-            .map(_.stackInfo.handlers.view.map(_.pc))
-            .flatMap(it => it.zip(it.tail))
-            .groupBy(_._2)
-            .view
-            .mapValues(_.view.map(_._1).toSet)
-            .toMap
-        new FunctionInfo(instrInfos, allocateHandlerSlots(handlerTree))
+    def apply(instrs: Array[Instr], instrInfos: Array[Option[InstrInfo]]): FunctionInfo = {
+        new FunctionInfo(instrInfos, allocateHandlerSlots(instrs, instrInfos))
     }
 
-    private def allocateHandlerSlots(handlerTree: Map[Int, Set[Int]]): Map[Int, Int] = {
-        val result = Map.newBuilder[Int, Int]
+    private def allocateHandlerSlots(instrs: Array[Instr], instrInfos: Array[Option[InstrInfo]]): Map[Int, Int] = {
+        val usedHandlers = instrs.view
+            .zip(instrInfos)
+            .collect { case (specialized: SpecializedInstr, Some(info)) => (specialized, info) }
+            .filter { case (instr, _) => InstructionImpls.getImpl(instr)._1.getParameterAnnotations.view.flatten.exists(_.isInstanceOf[HandlerCheck]) }
+            .map(_._2.stackInfo.handlers.head.pc)
+            .toSet
 
-        def go(handler: Int, depth: Int): Unit = {
-            result += handler -> depth
-            for (child <- handlerTree.getOrElse(handler, Set.empty)) {
-                go(child, depth + 1)
+        val result = mutable.Map.empty[Int, Int]
+
+        for (handlers <- instrInfos.view.flatten.map(_.stackInfo.handlers.view.map(_.pc).reverse.drop(1))) {
+            var slot = 0
+            for (handler <- handlers if usedHandlers(handler)) {
+                result.get(handler) match {
+                    case Some(existing) => require(slot == existing)
+                    case None => result(handler) = slot
+                }
+                slot += 1
             }
         }
 
-        for (start <- handlerTree.get(-1).toSeq.flatten) {
-            go(start, 0)
-        }
-        result.result()
+        result.toMap
     }
 }
 

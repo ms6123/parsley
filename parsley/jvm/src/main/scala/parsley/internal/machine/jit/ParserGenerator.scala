@@ -57,7 +57,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
             def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels(pos)
 
-            def handlerLocal(label: Int) = 1 + function.info.handlerSlots(label)
+            def handlerLocal(label: Int) = function.info.handlerSlots.get(label).map(_ + 1)
 
             def performActions(actions: Seq[AfterAction]): Unit = {
                 for (action <- actions) {
@@ -70,9 +70,11 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 vis.visitInsn(Opcodes.POP)
                             }
                         case AfterAction.PushHandler(label) =>
-                            loadContext()
-                            vis.callMethod(Methods.Context.GET_OFFSET)
-                            vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(label))
+                            handlerLocal(label).foreach { local =>
+                                loadContext()
+                                vis.callMethod(Methods.Context.GET_OFFSET)
+                                vis.visitVarInsn(Opcodes.ISTORE, local)
+                            }
                     }
                 }
             }
@@ -273,9 +275,11 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             case JitImpl.Action.DupX1 =>
                                 vis.visitInsn(Opcodes.DUP_X1)
                             case JitImpl.Action.UpdateCheckOffset =>
-                                loadContext()
-                                vis.callMethod(Methods.Context.GET_OFFSET)
-                                vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
+                                handlerLocal(instrInfo.stackInfo.handlers.head.pc).foreach { local =>
+                                    loadContext()
+                                    vis.callMethod(Methods.Context.GET_OFFSET)
+                                    vis.visitVarInsn(Opcodes.ISTORE, local)
+                                }
                         }
                     }
                 }
@@ -300,8 +304,8 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 vis.visitInsn(Opcodes.DUP_X2)
                                 vis.visitInsn(Opcodes.POP)
                             case 3 =>
-                                val currentHandler = instrInfo.stackInfo.handlers.head.pc
-                                val localOffset = if (currentHandler == -1) 0 else handlerLocal(currentHandler)
+                                val currentHandlers = instrInfo.stackInfo.handlers.view.map(_.pc)
+                                val localOffset = currentHandlers.map(handlerLocal).collectFirst { case Some(local) => local }.getOrElse(0)
 
                                 val toStore = info.consumeOperands - 2
                                 for (local <- toStore to 1 by -1) {
@@ -321,7 +325,8 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                             } else {
                                 require(annotations.view.collect {
                                     case _: Pc => vis.loadInt(pos)
-                                    case _: HandlerCheck => vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc))
+                                    case _: HandlerCheck =>
+                                        vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(instrInfo.stackInfo.handlers.head.pc).get)
                                 }.sizeIs == 1)
                             }
                         }
