@@ -20,11 +20,14 @@ final case class SymbolDesc (hardKeywords: Set[String],
                              caseSensitive: Boolean) {
     require((hardKeywords & hardOperators).isEmpty, "there cannot be an intersection between keywords and operators")
     private [parsley] val hardOperatorsTrie: Trie[Unit] = Trie(hardOperators)
-    private [parsley] def isReservedName(name: String): Boolean =
-        theReservedNames.contains(if (caseSensitive) name else name.toLowerCase)
-    private lazy val theReservedNames =  if (caseSensitive) hardKeywords else hardKeywords.map(_.toLowerCase)
 
-    private [parsley] def isReservedOp(op: String): Boolean = hardOperators.contains(op)
+    private [parsley] val isReservedName: String => Boolean = {
+        val theReservedNames = if (caseSensitive) hardKeywords else hardKeywords.map(_.toLowerCase)
+        if (caseSensitive) theReservedNames.contains
+        else name => theReservedNames.contains(name.toLowerCase)
+    }
+
+    private [parsley] val isReservedOp: String => Boolean = hardOperators.contains
 }
 
 /** This object contains any preconfigured symbol descriptions.

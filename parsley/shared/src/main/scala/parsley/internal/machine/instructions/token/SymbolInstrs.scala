@@ -18,7 +18,7 @@ import parsley.internal.machine.instructions.{Instr, JitImpl, SpecializedInstr}
 import parsley.internal.machine.instructions.token.Specific.computePosUpdate
 
 private [token] abstract class Specific extends Instr with SpecializedInstr {
-    protected val specific: String
+    val specific: String
     val letter: CharPredicate
     val caseSensitive: Boolean
     protected val expected: Iterable[ExpectItem]
@@ -59,9 +59,9 @@ private [token] abstract class Specific extends Instr with SpecializedInstr {
         }
     }
 
-    @JitImpl(constants = Array("posUpdate", "caseSensitive", "letter"))
-    def apply(posUpdate: Context => Unit, caseSensitive: Boolean, letter: CharPredicate, ctx: Context): Boolean = {
-        if (ctx.input.regionMatches(!caseSensitive, ctx.offset, specific, 0, strsz)) {
+    @JitImpl(constants = Array("specific", "posUpdate", "caseSensitive", "letter"))
+    def apply(specific: String, posUpdate: Context => Unit, caseSensitive: Boolean, letter: CharPredicate, ctx: Context): Boolean = {
+        if (ctx.input.regionMatches(!caseSensitive, ctx.offset, specific, 0, specific.length)) {
             val oldOffset = ctx.offset
             val oldLine = ctx.line
             val oldCol = ctx.col
@@ -121,7 +121,7 @@ private object Specific {
     }
 }
 
-private [internal] final class SoftKeyword(protected val specific: String, val letter: CharPredicate, val caseSensitive: Boolean,
+private [internal] final class SoftKeyword(val specific: String, val letter: CharPredicate, val caseSensitive: Boolean,
                                            protected val expected: Iterable[ExpectItem], protected val reason: Option[String],
                                            protected val expectedEnd: Iterable[ExpectDesc]) extends Specific {
     def this(specific: String, letter: CharPred, caseSensitive: Boolean, expected: LabelWithExplainConfig, expectedEnd: String) = {
@@ -138,7 +138,7 @@ private [internal] final class SoftKeyword(protected val specific: String, val l
     // $COVERAGE-ON$
 }
 
-private [internal] final class SoftOperator(protected val specific: String, val letter: CharPredicate, ops: Trie[Unit],
+private [internal] final class SoftOperator(val specific: String, val letter: CharPredicate, ops: Trie[Unit],
                                             protected val expected: Iterable[ExpectItem], protected val reason: Option[String],
                                             protected val expectedEnd: Iterable[ExpectDesc]) extends Specific {
     def this(specific: String, letter: CharPred, ops: Trie[Unit], expected: LabelWithExplainConfig, expectedEnd: String) = {
