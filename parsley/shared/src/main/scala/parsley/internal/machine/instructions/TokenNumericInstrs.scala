@@ -49,8 +49,8 @@ private [internal] final class TokenSign(ty: SignType, plusPresence: PlusSignPre
         }
     }
 
-    @JitImpl
-    def apply(ctx: Context): Any = {
+    @JitImpl(constants = Array("neg", "pos"))
+    def apply(neg: Any, pos: Any, ctx: Context): Any = {
         // This could be simplified, but the "fail" branches need to be duplicated...
         if (ctx.moreInput && ctx.peekChar == '-') {
             ctx.fastUncheckedConsumeChars(1)

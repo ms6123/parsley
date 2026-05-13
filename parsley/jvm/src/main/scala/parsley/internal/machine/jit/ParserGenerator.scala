@@ -31,6 +31,14 @@ private object Methods {
         val RESULT: Method = classOf[mutable.Builder[?, ?]].getMethod("result")
         val ADD_ONE: Method = classOf[mutable.Builder[?, ?]].getMethod("$plus$eq", classOf[Any])
     }
+
+    object Functions {
+        val APPLY0: Method = classOf[Function0[?]].getMethod("apply")
+    }
+
+    object WhiteSpaceLikeImpl {
+        val APPLY: Method = classOf[WhiteSpaceLike.Impl].getMethod("apply", classOf[Context], classOf[Int])
+    }
 }
 
 private object ParserGenerator {
@@ -291,21 +299,23 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                 def applySpecialized(instr: Instr & SpecializedInstr): Unit = {
                     val (method, info) = InstructionImpls.getImpl(instr)
-                    val trailingParams = method.getParameterTypes.view.drop(info.consumeOperands).toArray
+                    val trailingParams = method.getParameterTypes.view.drop(info.consumeOperands + info.constants.length).toArray
 
                     performCustomActions(info.beforeActions)
 
                     if (info.noop) {
                         performActions(Seq(AfterAction.PopOperands(info.consumeOperands)))
                     } else {
+                        val instrClass = method.getDeclaringClass
+
                         info.consumeOperands match {
                             case 0 =>
-                                vis.loadObject(instr)
+                                vis.loadAny(instr, instrClass)
                             case 1 =>
-                                vis.loadObject(instr)
+                                vis.loadAny(instr, instrClass)
                                 vis.visitInsn(Opcodes.SWAP)
                             case 2 =>
-                                vis.loadObject(instr)
+                                vis.loadAny(instr, instrClass)
                                 vis.visitInsn(Opcodes.DUP_X2)
                                 vis.visitInsn(Opcodes.POP)
                             case 3 =>
@@ -316,12 +326,17 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 for (local <- toStore to 1 by -1) {
                                     vis.visitVarInsn(Opcodes.ASTORE, local + localOffset)
                                 }
-                                vis.loadObject(instr)
+                                vis.loadAny(instr, instrClass)
                                 vis.visitInsn(Opcodes.DUP_X2)
                                 vis.visitInsn(Opcodes.POP)
                                 for (local <- 1 to toStore) {
                                     vis.visitVarInsn(Opcodes.ALOAD, local + localOffset)
                                 }
+                        }
+
+                        for (constantName <- info.constants) {
+                            val method = instrClass.getMethod(constantName)
+                            vis.loadAny(method.invoke(instr), method.getReturnType)
                         }
 
                         val paramInfos = info.params.iterator
@@ -352,6 +367,11 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         vis.visitMethodInsn(Opcodes.INVOKESTATIC, className(id), IMPL_NAME, implDesc(producesResults), false)
                         performActions(instrInfo.afterActions)
                         jumpUsingReturnValue(if (producesResults) classOf[AnyRef] else classOf[Boolean])
+                    case Push(x) =>
+                        vis.loadObject(x.asInstanceOf[AnyRef])
+                    case Fresh(x) =>
+                        vis.loadObject(x)
+                        vis.callMethod(Methods.Functions.APPLY0)
                     case Case(label) =>
                         val rightLabel = new Label()
 
@@ -383,6 +403,12 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                         vis.visitLabel(stopLabel)
                         vis.visitInsn(Opcodes.POP)
                         vis.callMethod(Methods.Builder.RESULT)
+                    case WhiteSpaceLike(impl) =>
+                        vis.loadObject(impl)
+                        loadContext()
+                        vis.loadInt(pos)
+                        vis.callMethod(Methods.WhiteSpaceLikeImpl.APPLY)
+                        jumpToAllSuccessors()
                     case specialized: SpecializedInstr =>
                         applySpecialized(specialized)
                     case _ =>

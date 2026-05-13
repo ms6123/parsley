@@ -26,7 +26,7 @@ private [deepembedding] final class Precedence[A] private (prefixAtomChoice: Str
         val endLabel = state.freshLabel()
         val shuntJumpLabel = state.freshLabel()
         val shuntHandlerLabel = state.freshLabel()
-        instrs += new instructions.Fresh(instructions.ShuntingYardState.empty)
+        instrs += new instructions.Fresh(() => instructions.ShuntingYardState.empty)
         instrs += new instructions.PushHandlerAndState(shuntHandlerLabel)
         instrs += new instructions.Label(prefixAtomLabel)
         suspend(prefixAtomChoice.codeGen[M, R](producesResults = true)) >> {

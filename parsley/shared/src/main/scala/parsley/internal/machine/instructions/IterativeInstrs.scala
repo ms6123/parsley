@@ -247,7 +247,7 @@ private [internal] final class ChainrJump(var label: Int) extends InstrWithLabel
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 2, handlers.tail))
 }
 
-private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr with SpecializedInstr {
+private [internal] final class ChainrOpHandler(val wrap: Any => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         ctx.catchNoConsumed(ctx.handlerCheck) {
@@ -259,8 +259,8 @@ private [internal] final class ChainrOpHandler(wrap: Any => Any) extends Instr w
         }
     }
 
-    @JitImpl(consumeOperands = 2, params = Array(Param.HandlerCheck))
-    def apply(rops: Any, y: Any, ctx: Context, check: Int): Any = {
+    @JitImpl(consumeOperands = 2, constants = Array("wrap"), params = Array(Param.HandlerCheck))
+    def apply(rops: Any, y: Any, wrap: Any => Any, ctx: Context, check: Int): Any = {
         if (ctx.offset == check) {
             ROps.reduce(rops.asInstanceOf[ROps], wrap(y))
         } else FailMarker

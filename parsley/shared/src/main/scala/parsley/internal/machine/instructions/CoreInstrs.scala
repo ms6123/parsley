@@ -14,15 +14,12 @@ import parsley.internal.machine.errors.{EmptyError, EmptyHints}
 import parsley.internal.machine.instructions.JitImpl.Param
 
 // Stack Manipulators
-private [internal] final class Push[A](x: A) extends Instr with SpecializedInstr {
+private [internal] final case class Push[A](x: A) extends Instr with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.push(x)
         pc + 1
     }
-
-    @JitImpl
-    def apply: Any = x
 
     // $COVERAGE-OFF$
     override def toString: String = s"Push($x)"
@@ -36,15 +33,12 @@ private [internal] object Push {
     val Unit = new Push(())
 }
 
-private [internal] final class Fresh[A](x: =>A) extends Instr with SpecializedInstr {
+private [internal] final case class Fresh[A](x: () => A) extends Instr with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        ctx.push(x)
+        ctx.push(x())
         pc + 1
     }
-
-    @JitImpl
-    def apply: Any = x
 
     // $COVERAGE-OFF$
     override def toString: String = s"Fresh($x)"

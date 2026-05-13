@@ -16,6 +16,8 @@ public @interface JitImpl {
     
     Action[] afterActions() default {};
 
+    String[] constants() default {};
+
     Param[] params() default {};
     
     enum Action {

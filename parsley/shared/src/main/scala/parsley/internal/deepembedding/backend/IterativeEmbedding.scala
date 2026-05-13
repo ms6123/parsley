@@ -166,7 +166,7 @@ private [deepembedding] final class SepEndBy1[A, C](val p: StrictParsley[A], val
         val handler1 = state.freshLabel()
         val handler2 = state.freshLabel()
         val endLabel = state.freshLabel()
-        instrs += new instructions.Fresh(factory.newBuilder)
+        instrs += new instructions.Fresh(() => factory.newBuilder)
         instrs += new instructions.Push(false) // this tracks if p has been consumed
         instrs += new instructions.PushHandler(handler1)
         instrs += new instructions.Label(body)

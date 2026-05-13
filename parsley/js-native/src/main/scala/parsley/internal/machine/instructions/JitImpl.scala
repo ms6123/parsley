@@ -6,6 +6,7 @@ final class JitImpl(val noop: Boolean = false,
                     val consumeOperands: Int = 0,
                     val beforeActions: Array[JitImpl.Action.Value] = Array(),
                     val afterActions: Array[JitImpl.Action.Value] = Array(),
+                    val constants: Array[String] = Array(),
                     val params: Array[JitImpl.Param.Value] = Array()
                    ) extends StaticAnnotation
 

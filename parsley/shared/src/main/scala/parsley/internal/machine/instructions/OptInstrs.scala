@@ -17,15 +17,15 @@ import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyHints, ExpectedError}
 import parsley.internal.machine.stacks.ErrorStack
 
-private [internal] final class Lift1(f: Any => Any) extends Instr with SpecializedInstr {
+private [internal] final class Lift1(val f: Any => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.exchange(f(ctx.stack.upeek))
         pc + 1
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("f"))
+    def apply(x: Any, f: Any => Any): Any = {
         f(x)
     }
 
@@ -52,7 +52,7 @@ private [internal] final class Exchange[A](private [Exchange] val x: A) extends 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr with SpecializedInstr {
+private [internal] final class SatisfyExchange[A](val f: Char => Boolean, x: A, _expected: LabelConfig) extends Instr with SpecializedInstr {
     private [this] final val expected = _expected.asExpectDescs
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -64,8 +64,8 @@ private [internal] final class SatisfyExchange[A](f: Char => Boolean, x: A, _exp
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
 
-    @JitImpl
-    def apply(ctx: Context): Any = {
+    @JitImpl(constants = Array("f"))
+    def apply(f: Char => Boolean, ctx: Context): Any = {
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
             x

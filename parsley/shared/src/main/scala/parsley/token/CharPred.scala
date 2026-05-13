@@ -5,12 +5,14 @@
  */
 package parsley.token
 
-import parsley.Parsley, Parsley.empty
+import parsley.Parsley
+import Parsley.empty
 import parsley.character.satisfy
 import parsley.exceptions.ParsleyException
-import parsley.unicode.{satisfy => satisfyUtf16}
-
+import parsley.unicode.satisfy as satisfyUtf16
 import scala.collection.immutable.NumericRange
+
+import parsley.internal.machine.instructions.token.CharPredicate
 
 /** Base class for character predicates.
   * @since 4.0.0
@@ -45,7 +47,7 @@ final case class Unicode(predicate: Int => Boolean) extends CharPred {
     private [token] override def toNative = toUnicode.void
     private [token] def startsWith(s: String) = s.nonEmpty && predicate(s.codePointAt(0))
     private [token] def endsWith(s: String) = s.nonEmpty && predicate(s.codePointBefore(s.length))
-    private [parsley] def asInternalPredicate = new parsley.internal.machine.instructions.token.Unicode(predicate)
+    private [parsley] def asInternalPredicate = CharPredicate.unicode(predicate)
 }
 object Unicode {
     /** Lifts a regular full-width character predicate.
@@ -93,7 +95,7 @@ final case class Basic(predicate: Char => Boolean) extends CharPred {
     private [token] override def toNative = toBmp.void
     private [token] def startsWith(s: String) = s.headOption.exists(predicate)
     private [token] def endsWith(s: String) = s.lastOption.exists(predicate)
-    private [parsley] def asInternalPredicate = new parsley.internal.machine.instructions.token.Basic(predicate)
+    private [parsley] def asInternalPredicate = CharPredicate.basic(predicate)
 }
 object Basic {
     /** Constructs a predicate for the specific given character.
@@ -116,5 +118,5 @@ case object NotRequired extends CharPred {
     private [token] override def toNative = empty
     private [token] def startsWith(s: String) = true
     private [token] def endsWith(s: String) = true
-    private [parsley] def asInternalPredicate = parsley.internal.machine.instructions.token.NotRequired
+    private [parsley] def asInternalPredicate = CharPredicate.notRequired
 }

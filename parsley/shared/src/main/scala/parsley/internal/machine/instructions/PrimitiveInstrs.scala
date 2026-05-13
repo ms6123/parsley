@@ -11,7 +11,7 @@ import parsley.internal.errors.ExpectDesc
 import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 
-private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
+private [internal] final class Satisfies(val f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
     def this(f: Char => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -22,8 +22,8 @@ private [internal] final class Satisfies(f: Char => Boolean, expected: Iterable[
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
 
-    @JitImpl
-    def apply(ctx: Context): Any = {
+    @JitImpl(constants = Array("f"))
+    def apply(f: Char => Boolean, ctx: Context): Any = {
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
         }

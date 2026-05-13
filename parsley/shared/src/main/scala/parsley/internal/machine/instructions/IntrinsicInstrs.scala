@@ -8,6 +8,7 @@ package parsley.internal.machine.instructions
 import scala.annotation.tailrec
 
 import parsley.XAssert.*
+import parsley.errors.VanillaGen
 
 import parsley.errors
 import parsley.token.errors.LabelConfig
@@ -19,7 +20,7 @@ import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
 import parsley.internal.machine.instructions.JitImpl.Param
 
-private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with SpecializedInstr {
+private [internal] final class Lift2(val f: (Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val y = ctx.stack.upop()
@@ -27,8 +28,8 @@ private [internal] final class Lift2(f: (Any, Any) => Any) extends Instr with Sp
         pc + 1
     }
 
-    @JitImpl(consumeOperands = 2)
-    def apply(x: Any, y: Any): Any = {
+    @JitImpl(consumeOperands = 2, constants = Array("f"))
+    def apply(x: Any, y: Any, f: (Any, Any) => Any): Any = {
         f(x, y)
     }
 
@@ -44,7 +45,7 @@ private [internal] object Lift2 {
     def apply[A, B, C](f: (A, B) => C): Lift2 = new Lift2(f.asInstanceOf[(Any, Any) => Any])
 }
 
-private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr with SpecializedInstr {
+private [internal] final class Lift3(val f: (Any, Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val z = ctx.stack.upop()
@@ -53,8 +54,8 @@ private [internal] final class Lift3(f: (Any, Any, Any) => Any) extends Instr wi
         pc + 1
     }
 
-    @JitImpl(consumeOperands = 3)
-    def apply(x: Any, y: Any, z: Any): Any = {
+    @JitImpl(consumeOperands = 3, constants = Array("f"))
+    def apply(x: Any, y: Any, z: Any, f: (Any, Any, Any) => Any): Any = {
         f(x, y, z)
     }
 
@@ -160,7 +161,7 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
     // $COVERAGE-ON$
 }
 
-private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
+private [internal] final class UniSat(val f: Int => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
     def this(f: Int => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -185,8 +186,8 @@ private [internal] final class UniSat(f: Int => Boolean, expected: Iterable[Expe
     override def toString: String = "UniSat(?(_))"
     // $COVERAGE-ON$
 
-    @JitImpl
-    def apply(ctx: Context): Any = {
+    @JitImpl(constants = Array("f"))
+    def apply(f: Int => Boolean, ctx: Context): Any = {
         lazy val hc = ctx.peekChar(0)
         lazy val h = hc.toInt
         lazy val l = ctx.peekChar(1)
@@ -320,12 +321,18 @@ private [internal] object Eof extends Instr {
     // $COVERAGE-ON$
 }
 
-private [internal] final class Modify(reg: Int, f: Any => Any) extends Instr {
+private [internal] final class Modify(reg: Int, val f: Any => Any) extends Instr {
     override def apply(ctx: Context, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, f(ctx.regs(reg)))
         pc + 1
     }
+
+    @JitImpl(constants = Array("f"))
+    def apply(f: Any => Any, ctx: Context): Unit = {
+        ctx.writeReg(reg, f(ctx.regs(reg)))
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Modify($reg, f)"
     // $COVERAGE-ON$
@@ -387,7 +394,7 @@ private [instructions] abstract class FilterLike extends Instr with SpecializedI
 }
 
 private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var bad: Int) extends FilterLike {
-    private [this] val pred = _pred.asInstanceOf[Any => Boolean]
+    val pred: Any => Boolean = _pred.asInstanceOf[Any => Boolean]
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -403,8 +410,8 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
         }
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("pred"))
+    def apply(x: Any, pred: Any => Boolean, ctx: Context): Any = {
         if (pred(x)) {
             ctx.states = ctx.states.tail
             x
@@ -422,7 +429,7 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
 }
 
 private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: Int, var bad: Int) extends FilterLike {
-    private [this] val pred = _pred.asInstanceOf[Any => Option[B]]
+    val pred: Any => Option[B] = _pred.asInstanceOf[Any => Option[B]]
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -441,8 +448,8 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
         }
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("pred"))
+    def apply(x: Any, pred: Any => Option[B], ctx: Context): Any = {
         val opt = pred(x)
         if (opt.isDefined) {
             ctx.states = ctx.states.tail
@@ -461,7 +468,7 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
 }
 
 private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr with SpecializedInstr {
-    private [this] val pred = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
+    val pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])] = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -478,8 +485,8 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
         }
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("pred"))
+    def apply(x: Any, pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])], ctx: Context): Any = {
         val state = ctx.states
         ctx.states = state.tail
         pred.applyOrElse(x, FilterPartial.orNull) match {
@@ -499,7 +506,7 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
 }
 
 private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq[String], B]) extends Instr with SpecializedInstr {
-    private [this] val pred = f.asInstanceOf[Any => Either[Seq[String], Any]]
+    val pred: Any => Either[Seq[String], Any] = f.asInstanceOf[Any => Either[Seq[String], Any]]
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -517,8 +524,8 @@ private [internal] final class FilterPartialSpecialized[A, B](f: A => Either[Seq
         }
     }
 
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("pred"))
+    def apply(x: Any, pred: Any => Either[Seq[String], Any], ctx: Context): Any = {
         val state = ctx.states
         ctx.states = state.tail
         pred(x) match {

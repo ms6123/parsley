@@ -5,6 +5,7 @@ import java.lang.reflect.{Method, Modifier}
 import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
+import scala.reflect.ClassTag
 
 import parsley.internal.machine.jit.ClassGenContext.objectPools
 import parsley.internal.machine.jit.ClassGenContext.Constants.*
@@ -46,14 +47,14 @@ class ClassGenContext {
                     objectPool.length - 1
                 })
 
-                obj.getClass.getSimpleName + index
+                clazz.getSimpleName + index
             })
         }
 
         override def visitEnd(): Unit = {
             val clinit = visitMethod(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null)
             for (((obj, clazz), index) <- objectPool.zip(objectTypes).zipWithIndex) {
-                visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL, obj.getClass.getSimpleName + index, Type.getDescriptor(clazz), null, null).visitEnd()
+                visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL, clazz.getSimpleName + index, Type.getDescriptor(clazz), null, null).visitEnd()
 
                 clinit.visitLdcInsn(Type.getObjectType(className))
                 clinit.visitLdcInsn(obj.toString)
@@ -67,7 +68,7 @@ class ClassGenContext {
                 )
                 clinit.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(clazz))
 
-                clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, obj.getClass.getSimpleName + index, Type.getDescriptor(clazz))
+                clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, clazz.getSimpleName + index, Type.getDescriptor(clazz))
             }
             clinit.visitInsn(Opcodes.RETURN)
             clinit.visitEnd()
@@ -77,13 +78,20 @@ class ClassGenContext {
     class MethodGenVisitor(delegate: MethodVisitor, private val className: String, private val registerObject: (AnyRef, Class[?]) => String) extends MethodVisitor(Opcodes.ASM9, delegate) {
         visitCode()
 
-        def loadObject(obj: AnyRef): Unit = {
-            if (isScalaObject(obj)) {
+        def loadObject[T <: AnyRef](obj: T)(implicit tag: ClassTag[T]): Unit = loadAny(obj, tag.runtimeClass)
+
+        def loadAny(obj: AnyRef, cls: Class[?]): Unit =
+            if (cls.isPrimitive) {
+                cls match {
+                    case java.lang.Boolean.TYPE => visitInsn(if (obj.asInstanceOf[Boolean]) Opcodes.ICONST_1 else Opcodes.ICONST_0)
+                }
+            } else if (obj eq null) {
+                visitInsn(Opcodes.ACONST_NULL)
+            } else if (isScalaObject(obj)) {
                 visitFieldInsn(Opcodes.GETSTATIC, Type.getInternalName(obj.getClass), "MODULE$", Type.getDescriptor(obj.getClass))
             } else {
-                visitFieldInsn(Opcodes.GETSTATIC, className, registerObject(obj, obj.getClass), Type.getDescriptor(obj.getClass))
+                visitFieldInsn(Opcodes.GETSTATIC, className, registerObject(obj, cls), Type.getDescriptor(cls))
             }
-        }
 
         def loadInt(i: Int): Unit = {
             i match {

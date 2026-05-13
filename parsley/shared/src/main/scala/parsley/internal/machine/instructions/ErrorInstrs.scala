@@ -221,6 +221,10 @@ private [internal] final class Fail(width: CaretWidth, msgs: String*) extends In
         ensureRegularInstruction(ctx)
         ctx.failWithMessage(width, msgs*)
     }
+
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"Fail(${msgs.mkString(", ")})"
     // $COVERAGE-ON$
@@ -234,6 +238,10 @@ private [internal] final class Unexpected(msg: String, width: CaretWidth) extend
         ensureRegularInstruction(ctx)
         ctx.unexpectedFail(None, unexpected)
     }
+
+    @JitImpl(noop = true)
+    def apply(): Unit = ()
+
     // $COVERAGE-OFF$
     override def toString: String = s"Unexpected($msg)"
     // $COVERAGE-ON$
