@@ -35,13 +35,13 @@ class ClassGenContext {
     }
 
     class ClassGenVisitor(delegate: ClassVisitor, private val className: String) extends ClassVisitor(Opcodes.ASM9, delegate) {
-        private[ClassGenContext] val existingObjects = mutable.Map.empty[AnyRef, Int]
+        private[ClassGenContext] val existingObjects = mutable.Map.empty[(IdentityBox, Class[?]), Int]
         private[ClassGenContext] val objectPool = mutable.ArrayBuffer.empty[AnyRef]
         private[ClassGenContext] val objectTypes = mutable.ArrayBuffer.empty[Class[?]]
 
         override def visitMethod(access: Int, name: String, desc: String, signature: String, exceptions: Array[String]): MethodGenVisitor = {
             new MethodGenVisitor(super.visitMethod(access, name, desc, signature, exceptions), className, { case (obj, clazz) =>
-                val index = existingObjects.getOrElseUpdate(obj, {
+                val index = existingObjects.getOrElseUpdate((new IdentityBox(obj), clazz), {
                     objectPool += obj
                     objectTypes += clazz
                     objectPool.length - 1
@@ -148,4 +148,9 @@ object ClassGenContext {
 
 private class OpenClassLoader(parent: ClassLoader) extends ClassLoader(parent) {
     def defineClass(name: String, bytes: Array[Byte]): Class[_] = super.defineClass(name, bytes, 0, bytes.length)
+}
+
+private class IdentityBox(val value: AnyRef) {
+    override def equals(obj: Any): Boolean = obj.isInstanceOf[IdentityBox] && (obj.asInstanceOf[IdentityBox].value eq value)
+    override def hashCode(): Int = System.identityHashCode(value)
 }
