@@ -68,8 +68,8 @@ private [text] object ConcreteStringTemplate {
     def endParsers(ends: Set[(String, String)], impl: ConcreteString, sbRef: Ref[StringBuilder], valid: Parsley[StringBuilder] => Parsley[StringBuilder], closeLabel: (Boolean, Boolean) => LabelConfig) = {
         ends.view.map(impl.makeStringParser(sbRef, valid, closeLabel)).toList
     }
-    val addCodepoint = (sb: StringBuilder, cpo: Option[Int]) => {
-        for (cp <- cpo) parsley.unicode.addCodepoint(sb, cp)
+    val addCodepoint = (sb: StringBuilder, cpo: Int) => {
+        if (cpo >= 0) parsley.unicode.addCodepoint(sb, cpo)
         sb
     }
 
