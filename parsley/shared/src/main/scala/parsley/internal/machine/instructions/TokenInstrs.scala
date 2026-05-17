@@ -73,7 +73,7 @@ private [internal] final class TokenComment private (
     protected [this] val eofAllowed: Boolean,
     endOfMultiComment: Iterable[ExpectItem],
     endOfSingleComment: Iterable[ExpectDesc],
-    ) extends CommentLexer {
+    ) extends CommentLexer with SpecializedInstr {
     def this(desc: SpaceDesc, errConfig: ErrorConfig) = {
         this(desc.multiLineCommentStart, desc.multiLineCommentEnd, desc.lineCommentStart, desc.multiLineNestedComments, desc.lineCommentAllowsEOF,
              errConfig.labelSpaceEndOfMultiComment.asExpectItems(desc.multiLineCommentEnd),
@@ -83,7 +83,7 @@ private [internal] final class TokenComment private (
 
     assert(multiAllowed || lineAllowed, "one of single- or multi-line must be enabled")
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val startsMulti = multiAllowed && ctx.input.startsWith(start, ctx.offset)
         // If neither comment is available we fail
@@ -94,6 +94,17 @@ private [internal] final class TokenComment private (
         // It clearly wasn't the multi-line comment, so we are left with single line
         else if (singleLineComment(ctx)) pc + 1
         else ctx.expectedFail(expected = endOfSingleComment, unexpectedWidth = 1)
+    }
+
+    @JitImpl
+    def apply(ctx: Context): Boolean = {
+        val startsMulti = multiAllowed && ctx.input.startsWith(start, ctx.offset)
+        // If neither comment is available we fail
+        if (!ctx.moreInput || (!lineAllowed || !ctx.input.startsWith(line, ctx.offset)) && !startsMulti) false
+        // One of the comments must be available
+        else if (startsMulti) multiLineComment(ctx)
+        // It clearly wasn't the multi-line comment, so we are left with single line
+        else singleLineComment(ctx)
     }
 
     // $COVERAGE-OFF$
@@ -108,61 +119,77 @@ private [instructions] abstract class WhiteSpaceLike extends CommentLexer with I
 
     def spacePred: Char => Boolean = null
 
-    @tailrec private final def singlesOnly(ctx: Context, pc: Int, spacePred: Char => Boolean): Int = {
+    @tailrec private final def singlesOnly(ctx: Context, spacePred: Char => Boolean): Boolean = {
         spaces(ctx, spacePred)
         if (ctx.moreInput) {
             val startsSingle = ctx.input.startsWith(line, ctx.offset)
-            if (startsSingle && singleLineComment(ctx)) singlesOnly(ctx, pc, spacePred)
-            else if (startsSingle) ctx.expectedFail(expected = endOfSingleComment, unexpectedWidth = 1)
-            else pc + 1
+            if (startsSingle && singleLineComment(ctx)) singlesOnly(ctx, spacePred)
+            else if (startsSingle) {
+                ctx.expectedFail(expected = endOfSingleComment, unexpectedWidth = 1)
+                false
+            }
+            else true
         }
-        else pc + 1
+        else true
     }
 
-    @tailrec private final def multisOnly(ctx: Context, pc: Int, spacePred: Char => Boolean): Int = {
+    @tailrec private final def multisOnly(ctx: Context, spacePred: Char => Boolean): Boolean = {
         spaces(ctx, spacePred)
         val startsMulti = ctx.moreInput && ctx.input.startsWith(start, ctx.offset)
-        if (startsMulti && multiLineComment(ctx)) multisOnly(ctx, pc, spacePred)
-        else if (startsMulti) ctx.expectedFail(expected = endOfMultiComment, numCodePointsEnd)
-        else pc + 1
+        if (startsMulti && multiLineComment(ctx)) multisOnly(ctx, spacePred)
+        else if (startsMulti) {
+            ctx.expectedFail(expected = endOfMultiComment, numCodePointsEnd)
+            false
+        }
+        else true
     }
 
     private [this] final val sharedPrefix = line.view.zip(start).takeWhile(Function.tupled(_ == _)).map(_._1).mkString
     private [this] final val factoredStart = start.drop(sharedPrefix.length)
     private [this] final val factoredLine = line.drop(sharedPrefix.length)
     // PRE: Multi-line comments may not prefix single-line, but single-line may prefix multi-line
-    @tailrec final def singlesAndMultis(ctx: Context, pc: Int, spacePred: Char => Boolean): Int = {
+    @tailrec final def singlesAndMultis(ctx: Context, spacePred: Char => Boolean): Boolean = {
         spaces(ctx, spacePred)
         if (ctx.moreInput && ctx.input.startsWith(sharedPrefix, ctx.offset)) {
             val startsMulti = ctx.input.startsWith(factoredStart, ctx.offset + sharedPrefix.length)
-            if (startsMulti && multiLineComment(ctx)) singlesAndMultis(ctx, pc, spacePred)
-            else if (startsMulti) ctx.expectedFail(expected = endOfMultiComment, numCodePointsEnd)
+            if (startsMulti && multiLineComment(ctx)) singlesAndMultis(ctx, spacePred)
+            else if (startsMulti) {
+                ctx.expectedFail(expected = endOfMultiComment, numCodePointsEnd)
+                false
+            }
             else {
                 val startsLine = ctx.input.startsWith(factoredLine, ctx.offset + sharedPrefix.length)
-                if (startsLine && singleLineComment(ctx)) singlesAndMultis(ctx, pc, spacePred)
-                else if (startsLine) ctx.expectedFail(expected = endOfSingleComment, unexpectedWidth = 1)
-                else pc + 1
+                if (startsLine && singleLineComment(ctx)) singlesAndMultis(ctx, spacePred)
+                else if (startsLine) {
+                    ctx.expectedFail(expected = endOfSingleComment, unexpectedWidth = 1)
+                    false
+                }
+                else true
             }
         }
-        else pc + 1
+        else true
     }
 
-    final def spacesAndContinue(ctx: Context, pc: Int, spacePred: Char => Boolean): Int = {
+    final def spacesAndContinue(ctx: Context, spacePred: Char => Boolean): Boolean = {
         spaces(ctx, spacePred)
-        pc + 1
+        true
     }
 
     private [WhiteSpaceLike] final val impl: WhiteSpaceLike.Impl = {
         val spacePred = this.spacePred
-        if (!lineAllowed && !multiAllowed) spacesAndContinue(_, _, spacePred)
-        else if (!lineAllowed) multisOnly(_, _, spacePred)
-        else if (!multiAllowed) singlesOnly(_, _, spacePred)
-        else singlesAndMultis(_, _, spacePred)
+        if (!lineAllowed && !multiAllowed) spacesAndContinue(_, spacePred)
+        else if (!lineAllowed) multisOnly(_, spacePred)
+        else if (!multiAllowed) singlesOnly(_, spacePred)
+        else singlesAndMultis(_, spacePred)
     }
 
     override final def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
-        impl(ctx, pc)
+        if (impl(ctx)) {
+            pc + 1
+        } else {
+            ctx.fail()
+        }
     }
     protected def spaces(ctx: Context, spacePred: Char => Boolean): Unit
 }
@@ -170,7 +197,7 @@ private [instructions] abstract class WhiteSpaceLike extends CommentLexer with I
 private [machine] object WhiteSpaceLike {
     @FunctionalInterface
     trait Impl {
-        def apply(ctx: Context, pc: Int): Int
+        def apply(ctx: Context): Boolean
     }
 
     def unapply(x: WhiteSpaceLike): Option[Impl] = Some(x.impl)

@@ -37,7 +37,7 @@ private object Methods {
     }
 
     object WhiteSpaceLikeImpl {
-        val APPLY: Method = classOf[WhiteSpaceLike.Impl].getMethod("apply", classOf[Context], classOf[Int])
+        val APPLY: Method = classOf[WhiteSpaceLike.Impl].getMethod("apply", classOf[Context])
     }
 }
 
@@ -430,9 +430,8 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     case WhiteSpaceLike(impl) =>
                         vis.loadObject(impl)
                         loadContext()
-                        vis.loadInt(pos)
                         vis.callMethod(Methods.WhiteSpaceLikeImpl.APPLY)
-                        jumpToAllSuccessors()
+                        jumpUsingReturnValue(classOf[Boolean])
                     case specialized: SpecializedInstr =>
                         applySpecialized(specialized)
                     case _ =>

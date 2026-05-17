@@ -81,6 +81,15 @@ private [internal] class CharTok private (c: Char, errorItem: Iterable[ExpectIte
         }
         else ctx.expectedFail(errorItem, unexpectedWidth = 1)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Boolean = {
+        if (ctx.moreInput && ctx.peekChar == c) {
+            ctx.consumeChar()
+            true
+        } else false
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Chr($c)"
     // $COVERAGE-ON$
@@ -100,6 +109,15 @@ private [internal] class SupplementaryCharTok private (codepoint: Int, errorItem
         }
         else ctx.expectedFail(errorItem, unexpectedWidth = 1)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Boolean = {
+        if (ctx.moreInput(2) && ctx.peekChar(0) == h && ctx.peekChar(1) == l) {
+            ctx.fastConsumeSupplementaryChar()
+            true
+        } else false
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"SupplementaryChr($h$l)"
     // $COVERAGE-ON$
@@ -219,9 +237,8 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
     }
 
     @JitImpl(consumeOperands = 1, params = Array(Param.Pc))
-    def apply(condition: Any, pc: Int): Int = {
-        if (condition.asInstanceOf[Boolean]) label
-        else pc + 1
+    def apply(condition: Any, pc: Int): Boolean = {
+        !condition.asInstanceOf[Boolean]
     }
 
     // $COVERAGE-OFF$
@@ -316,6 +333,12 @@ private [internal] object Eof extends Instr {
         if (ctx.offset == ctx.inputsz) pc + 1
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
+
+    @JitImpl
+    def apply(ctx: Context): Boolean = {
+        ctx.offset == ctx.inputsz
+    }
+
     // $COVERAGE-OFF$
     override final def toString: String = "Eof"
     // $COVERAGE-ON$

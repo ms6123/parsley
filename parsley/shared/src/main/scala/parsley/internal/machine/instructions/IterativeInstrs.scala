@@ -102,7 +102,7 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
     }
 
     @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
-    def apply(x: Any, op: Any, ctx: Context): Any = {
+    def apply(x: Any, op: Any): Any = {
         op.asInstanceOf[Any => Any](x)
     }
 
@@ -130,13 +130,10 @@ private [internal] object IterativeHandler extends Instr with SpecializedInstr {
         }
     }
 
-    @JitImpl(params = Array(Param.Pc, Param.HandlerCheck))
-    def apply(ctx: Context, pc: Int, check: Int): Int = {
+    @JitImpl(params = Array(Param.HandlerCheck))
+    def applyJit(ctx: Context, check: Int): Boolean = {
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
-        ctx.catchNoConsumed(check) {
-            ctx.addErrorToHintsAndPop()
-            pc + 1
-        }
+        ctx.offset == check
     }
 
     // $COVERAGE-OFF$
@@ -429,12 +426,9 @@ private [internal] final class SkipManyUntil(var label: Int) extends InstrWithLa
         }
     }
 
-    @JitImpl(consumeOperands = 1, params = Array(Param.Pc))
-    def apply(x: Any, ctx: Context, pc: Int): Int = {
-        x match {
-            case ManyUntil.Stop => pc + 1
-            case _ => label
-        }
+    @JitImpl(consumeOperands = 1)
+    def apply(x: AnyRef): Boolean = {
+        x eq ManyUntil.Stop
     }
 
     // $COVERAGE-OFF$

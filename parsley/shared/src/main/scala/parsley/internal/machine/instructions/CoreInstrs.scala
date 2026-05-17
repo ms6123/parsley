@@ -419,11 +419,9 @@ private [internal] final class Catch(var label: Int) extends InstrWithLabel with
         }
     }
 
-    @JitImpl(params = Array(Param.Pc, Param.HandlerCheck))
-    def apply(ctx: Context, pc: Int, check: Int): Int = {
-        ctx.catchNoConsumed(check) {
-            pc + 1
-        }
+    @JitImpl(params = Array(Param.HandlerCheck))
+    def applyJit(ctx: Context, check: Int): Boolean = {
+        ctx.offset == check
     }
 
     // $COVERAGE-OFF$
