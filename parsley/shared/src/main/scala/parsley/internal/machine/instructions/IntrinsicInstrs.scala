@@ -71,9 +71,9 @@ private [internal] object Lift3 {
     def apply[A, B, C, D](f: (A, B, C) => D): Lift3 = new Lift3(f.asInstanceOf[(Any, Any, Any) => Any])
 }
 
-private [internal] class CharTok private (c: Char, errorItem: Iterable[ExpectItem]) extends Instr {
+private [internal] class CharTok private (val c: Char, errorItem: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
     def this(c: Char, expected: LabelConfig) = this(c, expected.asExpectItems(s"$c"))
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput && ctx.peekChar == c) {
             ctx.consumeChar()
@@ -82,10 +82,11 @@ private [internal] class CharTok private (c: Char, errorItem: Iterable[ExpectIte
         else ctx.expectedFail(errorItem, unexpectedWidth = 1)
     }
 
-    @JitImpl
-    def apply(ctx: Context): Boolean = {
+    @JitImpl(constants = Array("c"))
+    def apply(c: Char, ctx: Context): Boolean = {
         if (ctx.moreInput && ctx.peekChar == c) {
-            ctx.consumeChar()
+            ctx.updatePos(c)
+            ctx.offset += 1
             true
         } else false
     }
@@ -123,7 +124,7 @@ private [internal] class SupplementaryCharTok private (codepoint: Int, errorItem
     // $COVERAGE-ON$
 }
 
-private [internal] final class StringTok private (s: String, errorItem: Iterable[ExpectItem]) extends Instr {
+private [internal] final class StringTok private (val s: String, errorItem: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
     def this(s: String, expected: LabelConfig) = this(s, expected.asExpectItems(s))
 
     private [this] val sz = s.length
@@ -147,7 +148,7 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
     }
     private [this] val partialLineAdjusters = new Array[Int => Int](sz)
     private [this] val partialColAdjusters = new Array[Int => Int](sz)
-    private [this] val (lineAdjust, colAdjust) = compute(0, 0, new StringTok.Offset)
+    val (lineAdjust, colAdjust) = compute(0, 0, new StringTok.Offset)
 
     @tailrec private def go(ctx: Context, pc: Int, i: Int, j: Int): Int = {
         if (j < sz && i < ctx.inputsz && ctx.input.charAt(i) == s.charAt(j)) go(ctx, pc, i + 1, j + 1)
@@ -170,10 +171,34 @@ private [internal] final class StringTok private (s: String, errorItem: Iterable
         }
     }
 
-    override def apply(ctx: Context, pc: Int): Int = {
+    @tailrec private def goJit(ctx: Context, s: String, lineAdjust: Int => Int, colAdjust: Int => Int, i: Int, j: Int): Boolean = {
+        if (j < s.length) {
+            if (i < ctx.inputsz && ctx.input.charAt(i) == s.charAt(j)) {
+                goJit(ctx, s, lineAdjust, colAdjust, i + 1, j + 1)
+            } else {
+                // The offset, line and column haven't been edited yet, so are in the right place
+                ctx.offset = i
+                false
+            }
+        }
+        else {
+            ctx.col = colAdjust(ctx.col)
+            ctx.line = lineAdjust(ctx.line)
+            ctx.offset = i
+            true
+        }
+    }
+
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         go(ctx, pc, ctx.offset, 0)
     }
+
+    @JitImpl(constants = Array("s", "lineAdjust", "colAdjust"))
+    def apply(s: String, lineAdjust: Int => Int, colAdjust: Int => Int, ctx: Context): Boolean = {
+        goJit(ctx, s, lineAdjust, colAdjust, ctx.offset, 0)
+    }
+
     // $COVERAGE-OFF$
     override def toString: String = s"Str($s)"
     // $COVERAGE-ON$

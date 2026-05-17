@@ -84,6 +84,7 @@ class ClassGenContext {
             if (cls.isPrimitive) {
                 cls match {
                     case java.lang.Boolean.TYPE => visitInsn(if (obj.asInstanceOf[Boolean]) Opcodes.ICONST_1 else Opcodes.ICONST_0)
+                    case java.lang.Character.TYPE => loadInt(obj.asInstanceOf[Char])
                 }
             } else if (obj eq null) {
                 visitInsn(Opcodes.ACONST_NULL)
