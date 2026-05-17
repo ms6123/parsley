@@ -186,8 +186,8 @@ private [internal] final class UniSat(val f: Int => Boolean, expected: Iterable[
     override def toString: String = "UniSat(?(_))"
     // $COVERAGE-ON$
 
-    @JitImpl(constants = Array("f"))
-    def apply(f: Int => Boolean, ctx: Context): Any = {
+    @JitImpl(constants = Array("f"), intReturnKind = JitImpl.IntKind.CodePoint)
+    def apply(f: Int => Boolean, ctx: Context): Int = {
         lazy val hc = ctx.peekChar(0)
         lazy val h = hc.toInt
         lazy val l = ctx.peekChar(1)
@@ -202,7 +202,7 @@ private [internal] final class UniSat(val f: Int => Boolean, expected: Iterable[
             h
         }
         else {
-            FailMarker
+            -1
         }
     }
 

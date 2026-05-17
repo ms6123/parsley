@@ -16,6 +16,7 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.machine.errors.{EmptyError, ExpectedError}
 import parsley.internal.machine.instructions.{FailMarker, HandlerInfo, Instr, JitImpl, SpecializedInstr, StackInfo}
+import parsley.internal.machine.instructions.JitImpl.IntKind
 
 private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int, expecteds: Set[ExpectItem]) extends Instr with SpecializedInstr {
     def this(escTrie: Trie[Int], escs: Set[String]) = this(escTrie, escs.view.map(_.length).max, escs.map(new ExpectRaw(_)))
@@ -31,14 +32,9 @@ private [internal] final class EscapeMapped(escTrie: Trie[Int], caretWidth: Int,
         }
     }
     
-    @JitImpl
-    def apply(ctx: Context): Any = {
-        val res = findFirst(ctx, 0, escTrie)
-        if (res >= 0) {
-            res
-        } else {
-            FailMarker
-        }
+    @JitImpl(intReturnKind = IntKind.CodePoint)
+    def apply(ctx: Context): Int = {
+        findFirst(ctx, 0, escTrie)
     }
 
     @tailrec private def findLongest(ctx: Context, off: Int, escs: Trie[Int], longestChar: Int, longestSz: Int): Int = {
@@ -166,9 +162,6 @@ private [internal] final class EscapeOneOfExactly(radix: Int, ns: List[Int], ine
 
     @JitImpl
     def apply(ctx: Context): Any = {
-        val origOff = ctx.offset
-        val origLine = ctx.line
-        val origCol = ctx.col
         someNumber(ctx, m) match {
             case EscapeSomeNumber.Good(num) =>
                 assume(new EmptyError(ctx.offset, ctx.line, ctx.col, 0).isExpectedEmpty, "empty errors don't have expecteds, so don't effect hints")

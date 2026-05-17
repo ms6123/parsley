@@ -4,6 +4,7 @@ import scala.annotation.StaticAnnotation
 
 final class JitImpl(val noop: Boolean = false,
                     val consumeOperands: Int = 0,
+                    val intReturnKind: JitImpl.IntKind.Value = JitImpl.IntKind.Pc,
                     val beforeActions: Array[JitImpl.Action.Value] = Array(),
                     val afterActions: Array[JitImpl.Action.Value] = Array(),
                     val constants: Array[String] = Array(),
@@ -17,5 +18,9 @@ object JitImpl {
 
     object Param extends Enumeration {
         val Pc, HandlerCheck = Value
+    }
+
+    object IntKind extends Enumeration {
+        val Pc, Char, CodePoint = Value
     }
 }

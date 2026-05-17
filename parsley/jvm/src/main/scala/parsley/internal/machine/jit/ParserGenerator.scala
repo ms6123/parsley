@@ -192,9 +192,31 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     jumpToSuccessors(pos, successorLabels.result())
                 }
 
-                def jumpUsingReturnValue(returnType: Class[?]): Unit = {
+                def jumpUsingReturnValue(returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc): Unit = {
                     if (returnType eq classOf[Int]) {
-                        jumpToAllSuccessors()
+                        val boxingMethod = intKind match {
+                            case JitImpl.IntKind.Pc =>
+                                jumpToAllSuccessors()
+                                return
+                            case JitImpl.IntKind.Char =>
+                                classOf[java.lang.Character].getMethod("valueOf", classOf[Char])
+                            case JitImpl.IntKind.CodePoint =>
+                                classOf[java.lang.Integer].getMethod("valueOf", classOf[Int])
+                        }
+                        val Some(Successor(badPc, badAfterActions)) = instrInfo.badPath
+                        val Seq(Successor(goodPc, goodAfterActions)) = instrInfo.goodPaths
+
+                        val goodLabel = new Label()
+
+                        vis.visitInsn(Opcodes.DUP)
+                        vis.visitJumpInsn(Opcodes.IFGE, goodLabel)
+                        performActions(badAfterActions)
+                        vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
+
+                        vis.visitLabel(goodLabel)
+                        vis.callMethod(boxingMethod)
+
+                        jumpToSuccessors(pos, Seq(Successor(goodPc, goodAfterActions) -> labelForPos(goodPc)))
                         return
                     }
 
@@ -358,7 +380,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
 
                     performActions(instrInfo.afterActions)
 
-                    jumpUsingReturnValue(method.getReturnType)
+                    jumpUsingReturnValue(method.getReturnType, info.intReturnKind)
                 }
 
                 instr match {

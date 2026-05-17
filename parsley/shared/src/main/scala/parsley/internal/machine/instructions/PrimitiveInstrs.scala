@@ -22,13 +22,13 @@ private [internal] final class Satisfies(val f: Char => Boolean, expected: Itera
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
 
-    @JitImpl(constants = Array("f"))
-    def apply(f: Char => Boolean, ctx: Context): Any = {
+    @JitImpl(constants = Array("f"), intReturnKind = JitImpl.IntKind.Char)
+    def apply(f: Char => Boolean, ctx: Context): Int = {
         if (ctx.moreInput && f(ctx.peekChar)) {
             ctx.consumeChar()
         }
         else {
-            FailMarker
+            -1
         }
     }
 

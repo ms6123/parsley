@@ -11,6 +11,8 @@ public @interface JitImpl {
     boolean noop() default false;
     
     int consumeOperands() default 0;
+
+    IntKind intReturnKind() default IntKind.Pc;
     
     Action[] beforeActions() default {};
     
@@ -30,5 +32,11 @@ public @interface JitImpl {
     enum Param {
         Pc,
         HandlerCheck
+    }
+
+    enum IntKind {
+        Pc,
+        Char,
+        CodePoint
     }
 }
