@@ -18,7 +18,7 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
-import parsley.internal.machine.instructions.JitImpl.Param
+import parsley.internal.machine.instructions.JitImpl.{Action, Param}
 
 private [internal] final class Lift2(val f: (Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
@@ -410,15 +410,13 @@ private [internal] final class Filter[A](_pred: A => Boolean, var good: Int, var
         }
     }
 
-    @JitImpl(consumeOperands = 1, constants = Array("pred"))
-    def apply(x: Any, pred: Any => Boolean, ctx: Context): Any = {
+    @JitImpl(consumeOperands = 1, constants = Array("pred"), beforeActions = Array(Action.Dup))
+    def apply(x: Any, pred: Any => Boolean, ctx: Context): Boolean = {
         if (pred(x)) {
             ctx.states = ctx.states.tail
-            x
+            false
         }
-        else {
-            FallthroughMarker
-        }
+        else true
     }
 
     // $COVERAGE-OFF$
@@ -485,15 +483,10 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
         }
     }
 
-    @JitImpl(consumeOperands = 1, constants = Array("pred"))
-    def apply(x: Any, pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])], ctx: Context): Any = {
-        val state = ctx.states
-        ctx.states = state.tail
-        pred.applyOrElse(x, FilterPartial.orNull) match {
-            case null => x
-            case _ =>
-                FailMarker
-        }
+    @JitImpl(consumeOperands = 1, constants = Array("pred"), beforeActions = Array(Action.Dup))
+    def apply(x: Any, pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])], ctx: Context): Boolean = {
+        ctx.states = ctx.states.tail
+        !pred.isDefinedAt(x)
     }
 
     // $COVERAGE-OFF$

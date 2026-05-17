@@ -221,27 +221,27 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                     }
 
                     if (returnType eq classOf[Boolean]) {
-                        require(instrInfo.allPaths.size <= 2 && (instrInfo.jumpPaths.isEmpty || instrInfo.fallThroughPath.isEmpty))
-
                         if (instrInfo.allPaths.size <= 1) {
                             vis.visitInsn(Opcodes.POP)
                             jumpToSuccessors(pos, instrInfo.allPaths.map(it => it -> labelForPos(it.pc)))
                             return
                         }
 
-                        val Successor(badPc, badAfterActions) = instrInfo.badPath.get
-                        val Seq(Successor(goodPc, goodAfterActions)) = instrInfo.goodPaths
-                        if (badAfterActions.isEmpty) {
-                            vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(badPc))
+                        require(instrInfo.allPaths.size <= 2 && instrInfo.fallThroughPath.nonEmpty)
+
+                        val Successor(falsePc, falseAfterActions) = instrInfo.badPath.getOrElse(instrInfo.jumpPaths.head)
+                        val Successor(truePc, trueAfterActions) = instrInfo.fallThroughPath.get
+                        if (falseAfterActions.isEmpty) {
+                            vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(falsePc))
                         } else {
                             val goodLabel = new Label()
                             vis.visitJumpInsn(Opcodes.IFNE, goodLabel)
-                            performActions(badAfterActions)
-                            vis.visitJumpInsn(Opcodes.GOTO, labelForPos(badPc))
+                            performActions(falseAfterActions)
+                            vis.visitJumpInsn(Opcodes.GOTO, labelForPos(falsePc))
                             vis.visitLabel(goodLabel)
                         }
 
-                        jumpToSuccessors(pos, Seq(Successor(goodPc, goodAfterActions) -> labelForPos(goodPc)))
+                        jumpToSuccessors(pos, Seq(Successor(truePc, trueAfterActions) -> labelForPos(truePc)))
                         return
                     }
 
@@ -309,6 +309,8 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
                                 vis.visitInsn(Opcodes.SWAP)
                             case JitImpl.Action.DupX1 =>
                                 vis.visitInsn(Opcodes.DUP_X1)
+                            case JitImpl.Action.Dup =>
+                                vis.visitInsn(Opcodes.DUP)
                             case JitImpl.Action.UpdateCheckOffset =>
                                 handlerLocal(instrInfo.stackInfo.handlers.head.pc).foreach { local =>
                                     loadContext()

@@ -26,6 +26,7 @@ public @interface JitImpl {
         PushTrue,
         Swap,
         DupX1,
+        Dup,
         UpdateCheckOffset
     }
 

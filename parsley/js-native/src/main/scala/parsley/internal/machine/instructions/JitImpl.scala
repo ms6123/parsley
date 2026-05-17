@@ -13,7 +13,7 @@ final class JitImpl(val noop: Boolean = false,
 
 object JitImpl {
     object Action extends Enumeration {
-        val PushTrue, Swap, DupX1, UpdateCheckOffset = Value
+        val PushTrue, Swap, DupX1, Dup, UpdateCheckOffset = Value
     }
 
     object Param extends Enumeration {
