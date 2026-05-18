@@ -6,6 +6,7 @@ import parsley.errors.ErrorBuilder
 
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
+import parsley.internal.machine.jit.codegen.{ParserFunction, ParserGenerator}
 
 import parsley.{Failure, Result, Success}
 
