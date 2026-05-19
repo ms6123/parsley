@@ -10,8 +10,10 @@ import org.objectweb.asm.{Label, Opcodes, Type}
 class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, classVisitor: ClassGenContext#ClassGenVisitor)
     extends FunctionGenerator(function, classVisitor) {
     private val self = Type.getObjectType(ParserGenerator.className(function.id))
+    private val returnIndex = function.instrs.indexWhere(it => it == Return || it == Halt)
     private val returnLabels = function.instrs.zipWithIndex.collect {
-        case (Call(id, _), pos) if function.info.instrInfos(pos).isDefined && ctx.resolveCall(id).needsStateMachine => pos -> new Label()
+        case (Call(id, _), pos) if function.info.instrInfos(pos).isDefined && ctx.resolveCall(id).needsStateMachine && pos + 1 != returnIndex =>
+            pos -> new Label()
     }.toMap
 
     override protected val implName: String = Constants.IMPL_NAME
@@ -37,12 +39,19 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     }
 
     override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        val calleeType = Type.getObjectType(ParserGenerator.className(id))
+
         if (ctx.resolveCall(id).needsStateMachine) {
-            function.instrs(pos + 1) match {
-                case Halt | Return => System.err.println("TAIL CALL")
-                case _ =>
+            if (pos + 1 == returnIndex) {
+                // Tail call
+                vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
+                vis.visitInsn(Opcodes.DUP)
+                vis.visitVarInsn(Opcodes.ALOAD, 0)
+                vis.getField(Members.Continuation.NEXT)
+                vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+                vis.visitInsn(Opcodes.ARETURN)
+                return
             }
-            val calleeType = Type.getObjectType(ParserGenerator.className(id))
 
             for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
                 vis.visitVarInsn(Opcodes.ALOAD, 0)
@@ -94,7 +103,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
             }
         } else {
             loadContext()
-            vis.visitMethodInsn(Opcodes.INVOKESTATIC, ParserGenerator.className(id), IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
+            vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
         }
         performAfterActions(instrInfo.afterActions)
         jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
