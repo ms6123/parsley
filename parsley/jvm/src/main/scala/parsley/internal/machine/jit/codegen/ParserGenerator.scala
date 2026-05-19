@@ -22,9 +22,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
     private def generate(function: ParserFunction): Class[?] =
         ctx.newClass(
             Opcodes.ACC_PUBLIC, className(function.id),
-            superName = if (function.needsStateMachine) Constants.CONTINUATION.getInternalName else "java/lang/Object"
+            superName = if (function.isCyclic) Constants.CONTINUATION.getInternalName else "java/lang/Object"
         ) { classVisitor =>
-            if (function.needsStateMachine) {
+            if (function.isCyclic) {
                 new StateMachineFunctionGenerator(function, this, classVisitor).generate()
             } else {
                 new PlainFunctionGenerator(function, this, classVisitor).generate()

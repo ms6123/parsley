@@ -26,11 +26,6 @@ object Optimizer {
 
         val instrs = originalInstrs.map(_.copy)
 
-        def isFunctionTerminator(instr: Instr): Boolean = instr match {
-            case Halt | Return => true
-            case _ => false
-        }
-
         val functionRanges = mutable.ArrayBuffer[Range]()
         var chunkStart = 0
 
@@ -75,10 +70,16 @@ object Optimizer {
         }.toMap
 
         val analysis = analyzeAll(functions)
-        val needsStateMachine = findCyclicFunctions(functions, analysis)
+        val isCyclic = findCyclicFunctions(functions, analysis)
 
         val startMethod = new ParserGenerator(
-            functionRanges.view.map(_.start).map(id => new ParserFunction(id, functions(id), producesResults(id), needsStateMachine(id), analysis(id))).toArray
+            functionRanges.view.map(_.start).map(id =>
+                new ParserFunction(
+                    id, functions(id), producesResults(id), isCyclic(id),
+                    findSuspensionPoints(functions(id), producesResults(id), analysis(id), isCyclic),
+                    analysis(id),
+                )
+            ).toArray
         ).generate()
 
         new ParseRunner {
@@ -112,7 +113,7 @@ object Optimizer {
     private def findCyclicFunctions(functions: Map[Int, Array[Instr]], analysis: Map[Int, FunctionInfo]): Set[Int] = {
         val graph = functions.map { case (ourId, instrs) =>
             val instrInfos = analysis(ourId).instrInfos
-            ourId -> instrs.zipWithIndex.collect { case (Call(id, _), pos) if instrInfos(pos).isDefined => id}.toSet
+            ourId -> instrs.zipWithIndex.collect { case (Call(id, _), pos) if instrInfos(pos).isDefined => id }.toSet
         }
         val visited = mutable.Set.empty[Int]
         val onStack = mutable.Set.empty[Int]
@@ -223,6 +224,18 @@ object Optimizer {
         }
 
         new AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
+    }
+
+    private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, info: FunctionInfo, isCyclic: Int => Boolean): Array[Int] =
+        instrs.zipWithIndex.collect {
+            case (Call(theirId, theyProduceResults), pos) if
+                info.instrInfos(pos).isDefined && isCyclic(theirId) && (!isFunctionTerminator(instrs(pos + 1)) || producesResults != theyProduceResults) =>
+                pos
+        }
+
+    private def isFunctionTerminator(instr: Instr): Boolean = instr match {
+        case Halt | Return => true
+        case _ => false
     }
 }
 

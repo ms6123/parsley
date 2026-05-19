@@ -1,6 +1,6 @@
 package parsley.internal.machine.jit.codegen
 
-import parsley.internal.machine.instructions.{Call, FailMarker, Halt, Return}
+import parsley.internal.machine.instructions.FailMarker
 import parsley.internal.machine.jit.*
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
 import parsley.internal.machine.jit.codegen.StateMachineFunctionGenerator.Constants
@@ -10,11 +10,7 @@ import org.objectweb.asm.{Label, Opcodes, Type}
 class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, classVisitor: ClassGenContext#ClassGenVisitor)
     extends FunctionGenerator(function, classVisitor) {
     private val self = Type.getObjectType(ParserGenerator.className(function.id))
-    private val returnIndex = function.instrs.indexWhere(it => it == Return || it == Halt)
-    private val returnLabels = function.instrs.zipWithIndex.collect {
-        case (Call(id, _), pos) if function.info.instrInfos(pos).isDefined && ctx.resolveCall(id).needsStateMachine && pos + 1 != returnIndex =>
-            pos -> new Label()
-    }.toMap
+    private val returnLabels = function.suspensionPoints.map(it => it -> new Label()).toMap
 
     override protected val implName: String = Constants.IMPL_NAME
     override protected val implDesc: String = Constants.IMPL_DESC
@@ -41,69 +37,73 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         val calleeType = Type.getObjectType(ParserGenerator.className(id))
 
-        if (ctx.resolveCall(id).needsStateMachine) {
-            if (pos + 1 == returnIndex) {
-                // Tail call
-                vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
-                vis.visitInsn(Opcodes.DUP)
-                vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.getField(Members.Continuation.NEXT)
-                vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
-                vis.visitInsn(Opcodes.ARETURN)
-                return
-            }
+        val returnLabel = returnLabels.get(pos)
 
-            for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
-                vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.visitInsn(Opcodes.SWAP)
-                vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
-            }
-
-            for (handler <- instrInfo.stackInfo.handlers) {
-                function.info.handlerSlots.get(handler.pc) match {
-                    case Some(slot) =>
-                        vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(handler.pc).get)
-                        vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
-                    case None =>
-                }
-            }
-
-            vis.visitVarInsn(Opcodes.ALOAD, 0)
-            vis.loadInt(pos + 1)
-            vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
-
+        if (returnLabel.isEmpty && ctx.resolveCall(id).isCyclic) {
+            // Tail call
             vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
             vis.visitInsn(Opcodes.DUP)
             vis.visitVarInsn(Opcodes.ALOAD, 0)
+            vis.getField(Members.Continuation.NEXT)
             vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
             vis.visitInsn(Opcodes.ARETURN)
+            return
+        }
 
-            vis.visitLabel(returnLabels(pos))
-
-            for (handler <- instrInfo.stackInfo.handlers) {
-                function.info.handlerSlots.get(handler.pc) match {
-                    case Some(slot) =>
-                        vis.visitVarInsn(Opcodes.ALOAD, 0)
-                        vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
-                        vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler.pc).get)
-                    case None =>
+        returnLabel match {
+            case Some(returnLabel) =>
+                for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitInsn(Opcodes.SWAP)
+                    vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
                 }
-            }
 
-            for (i <- 0 until instrInfo.stackInfo.stacksz) {
+                for (handler <- instrInfo.stackInfo.handlers) {
+                    function.info.handlerSlots.get(handler.pc) match {
+                        case Some(slot) =>
+                            vis.visitVarInsn(Opcodes.ALOAD, 0)
+                            vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(handler.pc).get)
+                            vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                        case None =>
+                    }
+                }
+
                 vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
-            }
+                vis.loadInt(pos + 1)
+                vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
 
-            vis.visitVarInsn(Opcodes.ALOAD, 0)
-            vis.getField(Members.Continuation.RESULT)
-            if (!producesResults) {
-                vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
-            }
-        } else {
-            loadContext()
-            vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
+                vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
+                vis.visitInsn(Opcodes.DUP)
+                vis.visitVarInsn(Opcodes.ALOAD, 0)
+                vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+                vis.visitInsn(Opcodes.ARETURN)
+
+                vis.visitLabel(returnLabel)
+
+                for (handler <- instrInfo.stackInfo.handlers) {
+                    function.info.handlerSlots.get(handler.pc) match {
+                        case Some(slot) =>
+                            vis.visitVarInsn(Opcodes.ALOAD, 0)
+                            vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                            vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler.pc).get)
+                        case None =>
+                    }
+                }
+
+                for (i <- 0 until instrInfo.stackInfo.stacksz) {
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
+                }
+
+                vis.visitVarInsn(Opcodes.ALOAD, 0)
+                vis.getField(Members.Continuation.RESULT)
+                if (!producesResults) {
+                    vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
+                }
+            case None =>
+                // Regular call
+                loadContext()
+                vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
         }
         performAfterActions(instrInfo.afterActions)
         jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
