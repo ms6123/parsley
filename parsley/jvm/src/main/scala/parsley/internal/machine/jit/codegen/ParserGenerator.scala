@@ -4,9 +4,9 @@ import java.lang.invoke.{MethodHandle, MethodHandles, MethodType}
 
 import parsley.internal.machine.jit.*
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
-import parsley.internal.machine.jit.codegen.ParserGenerator.className
+import parsley.internal.machine.jit.codegen.ParserGenerator.{className, Constants}
 
-import org.objectweb.asm.Opcodes
+import org.objectweb.asm.{Opcodes, Type}
 
 private[jit] class ParserGenerator(private val functions: Array[ParserFunction]) {
     private val ctx = new ClassGenContext()
@@ -16,12 +16,25 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
         MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(classOf[AnyRef], classOf[JitContext]))
     }
 
+    private [codegen] def resolveCall(id: Int): ParserFunction = functions(id)
+
     private def generate(function: ParserFunction): Class[?] =
-        ctx.newClass(Opcodes.ACC_PUBLIC, className(function.id)) { classVisitor =>
-            new PlainFunctionGenerator(function, this, classVisitor).generate()
+        ctx.newClass(
+            Opcodes.ACC_PUBLIC, className(function.id),
+            superName = if (function.needsStateMachine) Constants.CONTINUATION.getInternalName else "java/lang/Object"
+        ) { classVisitor =>
+            if (function.needsStateMachine) {
+                new StateMachineFunctionGenerator(function, this, classVisitor).generate()
+            } else {
+                new PlainFunctionGenerator(function, this, classVisitor).generate()
+            }
         }
 }
 
 private [codegen] object ParserGenerator {
     def className(id: Int): String = s"parsley/internal/machine/jit/gen/parsers/Parser$id"
+
+    object Constants {
+        val CONTINUATION: Type = Type.getType(classOf[Continuation])
+    }
 }

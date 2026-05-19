@@ -81,7 +81,7 @@ object InstrInfo {
             .takeWhile { case (b, a) => b == a }
             .size
 
-        pcsAfter.drop(matchCount).map(AfterAction.PushHandler(_)).toSeq
+        pcsAfter.drop(matchCount).map(AfterAction.PushHandler(_)).toList
     }
 
     private def popActions(startStack: Int, endStack: Int): Seq[AfterAction] =

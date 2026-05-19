@@ -1,0 +1,185 @@
+package parsley.internal.machine.jit.codegen
+
+import parsley.internal.machine.instructions.{Call, DynCall, FailMarker}
+import parsley.internal.machine.jit.*
+import parsley.internal.machine.jit.codegen.StateMachineFunctionGenerator.Constants
+
+import org.objectweb.asm.{Label, Opcodes, Type}
+
+class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, classVisitor: ClassGenContext#ClassGenVisitor)
+    extends FunctionGenerator(function, classVisitor) {
+    private val self = Type.getObjectType(ParserGenerator.className(function.id))
+    private val returnLabels = function.instrs.zipWithIndex.collect { case (_: Call, pos) if function.info.instrInfos(pos).isDefined => pos -> new Label() }.toMap
+
+    override protected val implName: String = Constants.IMPL_NAME
+    override protected val implDesc: String = Constants.IMPL_DESC
+
+    override protected def implIsStatic: Boolean = false
+
+    override def generate(): Unit = {
+        generateFields()
+        generateEntrypoint()
+        super.generate()
+        generateCtor()
+    }
+
+    override protected def generateImplStart()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
+        CodeGenUtils.jumpDispatch(
+            JumpPath(0, labelForPos(0), None) +:
+                returnLabels.toSeq.map { case (pos, label) => JumpPath(pos + 1, label, None) },
+            labelForPos(0)
+        )
+    }
+
+    override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        val calleeType = Type.getObjectType(ParserGenerator.className(id))
+
+        for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+            vis.visitInsn(Opcodes.SWAP)
+            vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
+        }
+
+        for (handler <- instrInfo.stackInfo.handlers) {
+            function.info.handlerSlots.get(handler.pc) match {
+                case Some(slot) =>
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(handler.pc).get)
+                    vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                case None =>
+            }
+        }
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.loadInt(pos + 1)
+        vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
+
+        vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
+        vis.visitInsn(Opcodes.DUP)
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+        vis.visitInsn(Opcodes.ARETURN)
+
+        vis.visitLabel(returnLabels(pos))
+
+        for (handler <- instrInfo.stackInfo.handlers) {
+            function.info.handlerSlots.get(handler.pc) match {
+                case Some(slot) =>
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                    vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler.pc).get)
+                case None =>
+            }
+        }
+
+        for (i <- 0 until instrInfo.stackInfo.stacksz) {
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+            vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
+        }
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.getField(Members.Continuation.RESULT)
+        if (!producesResults) {
+            vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
+        }
+        performAfterActions(instrInfo.afterActions)
+        jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
+    }
+
+    override protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.getField(Members.Continuation.NEXT)
+        if (function.producesResults) {
+            vis.visitInsn(Opcodes.DUP_X1)
+            vis.visitInsn(Opcodes.SWAP)
+        } else {
+            vis.visitInsn(Opcodes.DUP)
+            vis.getField(Members.Boolean.TRUE)
+        }
+        vis.putField(Members.Continuation.RESULT)
+        vis.visitInsn(Opcodes.ARETURN)
+    }
+
+    override protected def generateFailure()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.getField(Members.Continuation.NEXT)
+        vis.visitInsn(Opcodes.DUP)
+        if (function.producesResults) {
+            vis.loadObject(FailMarker)
+        } else {
+            vis.getField(Members.Boolean.FALSE)
+        }
+        vis.putField(Members.Continuation.RESULT)
+        vis.visitInsn(Opcodes.ARETURN)
+    }
+
+    private def generateFields(): Unit = {
+        classVisitor.visitField(Opcodes.ACC_PRIVATE, Constants.LABEL_NAME, Constants.LABEL_DESC, null, null).visitEnd()
+
+        val callSaveInfos = returnLabels.keys.view.flatMap(function.info.instrInfos(_)).map(_.stackInfo)
+        val maxSavedStack = callSaveInfos.map(_.stacksz).foldLeft(0)(_ max _)
+        val maxSavedChecks = callSaveInfos.flatMap(_.handlers).map(_.pc).flatMap(function.info.handlerSlots.get).foldLeft(-1)(_ max _) + 1
+
+        for (i <- 0 until maxSavedStack) {
+            classVisitor.visitField(Opcodes.ACC_PRIVATE, Constants.savedStackName(i), Constants.SAVED_STACK_DESC, null, null).visitEnd()
+        }
+        for (i <- 0 until maxSavedChecks) {
+            classVisitor.visitField(Opcodes.ACC_PRIVATE, Constants.savedCheckName(i), Constants.SAVED_CHECK_DESC, null, null).visitEnd()
+        }
+    }
+
+    private def generateEntrypoint(): Unit = {
+        val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, FunctionGenerator.Constants.IMPL_NAME, FunctionGenerator.implDesc(function.producesResults), null, null)
+
+        vis.visitTypeInsn(Opcodes.NEW, self.getInternalName)
+        vis.visitInsn(Opcodes.DUP)
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.callMethod(Members.Context.GET_RESULT_HOLDER)
+
+        vis.visitMethodInsn(Opcodes.INVOKESPECIAL, self.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.callMethod(Members.Continuation.RUN)
+
+        if (function.producesResults) {
+            vis.visitInsn(Opcodes.ARETURN)
+        } else {
+            vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
+            vis.visitInsn(Opcodes.IRETURN)
+        }
+
+        vis.visitEnd()
+    }
+
+    private def generateCtor(): Unit = {
+        val vis = classVisitor.visitMethod(0, Constants.CTOR_NAME, Constants.CTOR_DESC, null, null)
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.visitVarInsn(Opcodes.ALOAD, 1)
+        vis.visitMethodInsn(Opcodes.INVOKESPECIAL, Constants.CONTINUATION.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+
+        vis.visitInsn(Opcodes.RETURN)
+        vis.visitEnd()
+    }
+}
+
+private object StateMachineFunctionGenerator {
+    object Constants {
+        val CONTINUATION: Type = Type.getType(classOf[Continuation])
+        val CTOR_NAME: String = "<init>"
+        val CTOR_DESC: String = Type.getMethodDescriptor(Type.VOID_TYPE, CONTINUATION)
+        val IMPL_NAME: String = "step"
+        val IMPL_DESC: String = Type.getMethodDescriptor(CONTINUATION, Type.getType(classOf[JitContext]))
+        val LABEL_NAME: String = "label"
+        val LABEL_DESC: String = "I"
+        val SAVED_STACK_DESC: String = Type.getDescriptor(classOf[AnyRef])
+        val SAVED_CHECK_DESC: String = Type.getDescriptor(classOf[Int])
+
+        def savedStackName(i: Int): String = "stack" + i
+
+        def savedCheckName(i: Int): String = "check" + i
+    }
+}

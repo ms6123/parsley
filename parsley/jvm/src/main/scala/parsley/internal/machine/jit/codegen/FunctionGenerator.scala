@@ -10,13 +10,24 @@ import parsley.internal.machine.jit.*
 
 import org.objectweb.asm.{Label, Opcodes, Type}
 
-private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx: ParserGenerator, classVisitor: ClassGenContext#ClassGenVisitor) {
-    protected val vis: ClassGenContext#MethodGenVisitor
+private [codegen] abstract class FunctionGenerator(function: ParserFunction, classVisitor: ClassGenContext#ClassGenVisitor) {
+    protected val implName: String
+    protected val implDesc: String
+    protected def implIsStatic: Boolean
+
+    private val baseLocalIndex = if (implIsStatic) 1 else 2
     private val instrLabels = function.instrs.map(_ => new Label())
     private val successLabel = new Label()
     private val failureLabel = new Label()
 
     def generate(): Unit = {
+        implicit val vis = classVisitor.visitMethod(
+            Opcodes.ACC_PUBLIC | (if (implIsStatic) Opcodes.ACC_STATIC else 0),
+            implName,
+            implDesc,
+            null, null
+        )
+        generateImplStart()
         for ((instr, pos) <- function.instrs.view.zipWithIndex; instrInfo <- function.info.instrInfos(pos)) {
             vis.visitLabel(instrLabels(pos))
 
@@ -34,7 +45,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                     vis.loadObject(x.asInstanceOf[AnyRef])
                 case Fresh(x) =>
                     vis.loadObject(x)
-                    vis.callMethod(Methods.Functions.APPLY0)
+                    vis.callMethod(Members.Functions.APPLY0)
                 case Case(label) =>
                     val rightLabel = new Label()
 
@@ -43,12 +54,12 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                     vis.visitJumpInsn(Opcodes.IFEQ, rightLabel)
 
                     vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Left[?, ?]]))
-                    vis.callMethod(Methods.Either.LEFT_VALUE)
+                    vis.callMethod(Members.Either.LEFT_VALUE)
                     vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
 
                     vis.visitLabel(rightLabel)
                     vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Right[?, ?]]))
-                    vis.callMethod(Methods.Either.RIGHT_VALUE)
+                    vis.callMethod(Members.Either.RIGHT_VALUE)
                 case ManyUntil(label) =>
                     val stopLabel = new Label()
 
@@ -60,16 +71,16 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                     vis.loadObject(ManyUntil.Stop)
                     vis.visitJumpInsn(Opcodes.IF_ACMPEQ, stopLabel)
 
-                    vis.callMethod(Methods.Builder.ADD_ONE)
+                    vis.callMethod(Members.Builder.ADD_ONE)
                     vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
 
                     vis.visitLabel(stopLabel)
                     vis.visitInsn(Opcodes.POP)
-                    vis.callMethod(Methods.Builder.RESULT)
+                    vis.callMethod(Members.Builder.RESULT)
                 case WhiteSpaceLike(impl) =>
                     vis.loadObject(impl)
                     loadContext()
-                    vis.callMethod(Methods.WhiteSpaceLikeImpl.APPLY)
+                    vis.callMethod(Members.WhiteSpaceLikeImpl.APPLY)
                     jumpUsingReturnValue(pos, instrInfo, classOf[Boolean])
                 case specialized: SpecializedInstr =>
                     applySpecialized(pos, instrInfo, specialized)
@@ -77,38 +88,36 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                     vis.loadObject(instr)
                     loadContext()
                     vis.loadInt(pos)
-                    vis.callMethod(Methods.Instr.APPLY)
+                    vis.callMethod(Members.Instr.APPLY)
                     performAfterActions(instrInfo.afterActions)
                     jumpUsingPc(pos, instrInfo)
             }
         }
 
-        if (function.producesResults) {
-            vis.visitLabel(successLabel)
-            vis.visitInsn(Opcodes.ARETURN)
-            vis.visitLabel(failureLabel)
-            vis.loadObject(FailMarker)
-            vis.visitInsn(Opcodes.ARETURN)
-        } else {
-            vis.visitLabel(successLabel)
-            vis.visitInsn(Opcodes.ICONST_1)
-            vis.visitInsn(Opcodes.IRETURN)
-            vis.visitLabel(failureLabel)
-            vis.visitInsn(Opcodes.ICONST_0)
-            vis.visitInsn(Opcodes.IRETURN)
-        }
+        vis.visitLabel(successLabel)
+        generateSuccess()
+        vis.visitLabel(failureLabel)
+        generateFailure()
+
         vis.visitEnd()
     }
 
-    protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean): Unit
+    protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
-    protected def loadContext(): Unit = vis.visitVarInsn(Opcodes.ALOAD, 0)
+    protected def generateImplStart()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = ()
 
-    private def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels.applyOrElse(pos, (_: Int) => null)
+    protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
-    private def handlerLocal(label: Int) = function.info.handlerSlots.get(label).map(_ + 1)
+    protected def generateFailure()(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
-    protected def performAfterActions(actions: Seq[AfterAction]): Unit = {
+    protected def loadContext()(implicit vis: ClassGenContext#MethodGenVisitor): Unit =
+        vis.visitVarInsn(Opcodes.ALOAD, if (implIsStatic) 0 else 1)
+
+    protected def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels.applyOrElse(pos, (_: Int) => null)
+
+    protected def handlerLocal(label: Int) = function.info.handlerSlots.get(label).map(_ + baseLocalIndex)
+
+    protected def performAfterActions(actions: Seq[AfterAction])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         for (action <- actions) {
             action match {
                 case AfterAction.PopOperands(n) =>
@@ -121,28 +130,29 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                 case AfterAction.PushHandler(label) =>
                     handlerLocal(label).foreach { local =>
                         loadContext()
-                        vis.callMethod(Methods.Context.GET_OFFSET)
+                        vis.callMethod(Members.Context.GET_OFFSET)
                         vis.visitVarInsn(Opcodes.ISTORE, local)
                     }
             }
         }
     }
 
-    private def jumpUsingPc(pos: Int, instrInfo: InstrInfo): Unit = {
+    private def jumpUsingPc(pos: Int, instrInfo: InstrInfo)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         val successorPaths = Seq.newBuilder[JumpPath]
 
         successorPaths ++= instrInfo.goodPaths.map(it => JumpPath(it.pc, labelForPos(it.pc), combineActions(it.afterActions)))
         successorPaths ++= instrInfo.badPath.map(it => JumpPath(-1, labelForPos(it.pc), combineActions(it.afterActions)))
 
-        CodeGenUtils.jumpDispatch(vis, successorPaths.result(), labelForPos(pos + 1))
+        CodeGenUtils.jumpDispatch(successorPaths.result(), labelForPos(pos + 1))
     }
 
-    private def combineActions(actions: Seq[AfterAction]) = actions match {
+    private def combineActions(actions: Seq[AfterAction])(implicit vis: ClassGenContext#MethodGenVisitor) = actions match {
         case Seq() => None
         case actions => Some(() => performAfterActions(actions))
     }
 
-    protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc): Unit = {
+    protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc)
+                                      (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         val fallThroughLabel = labelForPos(pos + 1)
 
         if (returnType eq classOf[Int]) {
@@ -169,7 +179,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
             vis.callMethod(boxingMethod)
 
             performAfterActions(goodAfterActions)
-            CodeGenUtils.goToLabel(vis, labelForPos(goodPc), fallThroughLabel)
+            CodeGenUtils.goToLabel(labelForPos(goodPc), fallThroughLabel)
             return
         }
 
@@ -194,7 +204,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
             }
 
             performAfterActions(trueAfterActions)
-            CodeGenUtils.goToLabel(vis, labelForPos(truePc), fallThroughLabel)
+            CodeGenUtils.goToLabel(labelForPos(truePc), fallThroughLabel)
             return
         }
 
@@ -204,7 +214,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
             case Some(Successor(badPc, badAfterActions)) =>
                 if (goodPaths.isEmpty) {
                     performAfterActions(badAfterActions)
-                    CodeGenUtils.goToLabel(vis, labelForPos(badPc), fallThroughLabel)
+                    CodeGenUtils.goToLabel(labelForPos(badPc), fallThroughLabel)
                     return
                 }
                 vis.visitInsn(Opcodes.DUP)
@@ -251,10 +261,10 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
         }
 
         require(possiblePaths.size <= 1)
-        CodeGenUtils.jumpDispatch(vis, possiblePaths.headOption.map(it => JumpPath(it.pc, labelForPos(it.pc), combineActions(it.afterActions))), fallThroughLabel)
+        CodeGenUtils.jumpDispatch(possiblePaths.headOption.map(it => JumpPath(it.pc, labelForPos(it.pc), combineActions(it.afterActions))), fallThroughLabel)
     }
 
-    private def performCustomActions(instrInfo: InstrInfo, actions: Array[JitImpl.Action]): Unit = {
+    private def performCustomActions(instrInfo: InstrInfo, actions: Array[JitImpl.Action])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         for (action <- actions) {
             action match {
                 case JitImpl.Action.PushTrue =>
@@ -268,14 +278,14 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                 case JitImpl.Action.UpdateCheckOffset =>
                     handlerLocal(instrInfo.stackInfo.handlers.head.pc).foreach { local =>
                         loadContext()
-                        vis.callMethod(Methods.Context.GET_OFFSET)
+                        vis.callMethod(Members.Context.GET_OFFSET)
                         vis.visitVarInsn(Opcodes.ISTORE, local)
                     }
             }
         }
     }
 
-    private def applySpecialized(pos: Int, instrInfo: InstrInfo, instr: Instr & SpecializedInstr): Unit = {
+    private def applySpecialized(pos: Int, instrInfo: InstrInfo, instr: Instr & SpecializedInstr)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         val (method, info) = InstructionImpls.getImpl(instr)
         val trailingParams = method.getParameterTypes.view.drop(info.consumeOperands + info.constants.length).toArray
 
@@ -298,16 +308,16 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, ctx
                     vis.visitInsn(Opcodes.POP)
                 case 3 =>
                     val currentHandlers = instrInfo.stackInfo.handlers.view.map(_.pc)
-                    val localOffset = currentHandlers.map(handlerLocal).collectFirst { case Some(local) => local }.getOrElse(0)
+                    val localOffset = currentHandlers.map(handlerLocal).collectFirst { case Some(local) => local }.getOrElse(0) + baseLocalIndex
 
                     val toStore = info.consumeOperands - 2
-                    for (local <- toStore to 1 by -1) {
+                    for (local <- toStore - 1 to 0 by -1) {
                         vis.visitVarInsn(Opcodes.ASTORE, local + localOffset)
                     }
                     vis.loadAny(instr, instrClass)
                     vis.visitInsn(Opcodes.DUP_X2)
                     vis.visitInsn(Opcodes.POP)
-                    for (local <- 1 to toStore) {
+                    for (local <- 0 until toStore) {
                         vis.visitVarInsn(Opcodes.ALOAD, local + localOffset)
                     }
             }

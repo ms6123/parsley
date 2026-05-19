@@ -1,17 +1,19 @@
 package parsley.internal.machine.jit.codegen
 
-import java.lang.reflect.Method
+import java.lang.reflect.{Field, Method}
 
 import scala.collection.mutable
+import scala.runtime.BoxesRunTime
 
 import parsley.internal.machine.Context
 import parsley.internal.machine.instructions.{Instr, WhiteSpaceLike}
-import parsley.internal.machine.jit.JitContext
+import parsley.internal.machine.jit.{Continuation, ContinuationResult, JitContext}
 
-private [codegen] object Methods {
+private [codegen] object Members {
     object Context {
         val IS_GOOD: Method = classOf[JitContext].getMethod("good")
         val GET_OFFSET: Method = classOf[JitContext].getMethod("offset")
+        val GET_RESULT_HOLDER: Method = classOf[JitContext].getMethod("resultHolder")
     }
 
     object Instr {
@@ -34,5 +36,20 @@ private [codegen] object Methods {
 
     object WhiteSpaceLikeImpl {
         val APPLY: Method = classOf[WhiteSpaceLike.Impl].getMethod("apply", classOf[Context])
+    }
+
+    object Continuation {
+        val RUN: Method = classOf[Continuation].getMethod("run", classOf[Continuation], classOf[JitContext])
+        val RESULT: Field = classOf[Continuation].getField("result")
+        val NEXT: Field = classOf[Continuation].getField("next")
+    }
+
+    object Boxing {
+        val UNBOX_TO_BOOLEAN: Method = classOf[BoxesRunTime].getMethod("unboxToBoolean", classOf[AnyRef])
+    }
+
+    object Boolean {
+        val TRUE: Field = classOf[java.lang.Boolean].getField("TRUE")
+        val FALSE: Field = classOf[java.lang.Boolean].getField("FALSE")
     }
 }

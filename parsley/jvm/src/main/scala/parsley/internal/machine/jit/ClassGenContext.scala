@@ -1,7 +1,7 @@
 package parsley.internal.machine.jit
 
 import java.io.File
-import java.lang.reflect.{Method, Modifier}
+import java.lang.reflect.{Field, Method, Modifier}
 import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
@@ -116,6 +116,16 @@ class ClassGenContext {
                 Opcodes.INVOKEVIRTUAL
             }
             visitMethodInsn(opcode, Type.getInternalName(method.getDeclaringClass), method.getName, Type.getMethodDescriptor(method), isInterface)
+        }
+
+        def getField(field: Field): Unit = {
+            val opcode = if (Modifier.isStatic(field.getModifiers)) Opcodes.GETSTATIC else Opcodes.GETFIELD
+            visitFieldInsn(opcode, Type.getInternalName(field.getDeclaringClass), field.getName, Type.getDescriptor(field.getType))
+        }
+
+        def putField(field: Field): Unit = {
+            val opcode = if (Modifier.isStatic(field.getModifiers)) Opcodes.PUTSTATIC else Opcodes.PUTFIELD
+            visitFieldInsn(opcode, Type.getInternalName(field.getDeclaringClass), field.getName, Type.getDescriptor(field.getType))
         }
 
         override def visitEnd(): Unit = {

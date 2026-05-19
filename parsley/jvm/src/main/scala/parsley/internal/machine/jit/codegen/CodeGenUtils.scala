@@ -9,10 +9,10 @@ import org.objectweb.asm.{Label, Opcodes}
 private[codegen] case class JumpPath(indicator: Int, label: Label, afterAction: Option[() => Unit])
 
 private[codegen] object CodeGenUtils {
-    def jumpDispatch(vis: ClassGenContext#MethodGenVisitor, successors: Seq[JumpPath], fallThroughLabel: Label): Unit = {
+    def jumpDispatch(successors: Seq[JumpPath], fallThroughLabel: Label)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         if (successors.size <= 1) {
             vis.visitInsn(Opcodes.POP)
-            jumpDispatch(vis, successors.headOption, fallThroughLabel)
+            jumpDispatch(successors.headOption, fallThroughLabel)
             return
         }
         successors match {
@@ -79,7 +79,7 @@ private[codegen] object CodeGenUtils {
         }
     }
 
-    def jumpDispatch(vis: ClassGenContext#MethodGenVisitor, successor: Option[JumpPath], fallThroughLabel: Label): Unit =
+    def jumpDispatch(successor: Option[JumpPath], fallThroughLabel: Label)(implicit vis: ClassGenContext#MethodGenVisitor): Unit =
         successor match {
             case None =>
                 vis.visitInsn(Opcodes.ACONST_NULL)
@@ -91,7 +91,7 @@ private[codegen] object CodeGenUtils {
                 }
         }
 
-    def goToLabel(vis: ClassGenContext#MethodGenVisitor, label: Label, fallThroughLabel: Label): Unit = {
+    def goToLabel(label: Label, fallThroughLabel: Label)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         if (label ne fallThroughLabel) {
             vis.visitJumpInsn(Opcodes.GOTO, label)
         }
