@@ -75,9 +75,10 @@ object Optimizer {
         }.toMap
 
         val analysis = analyzeAll(functions)
+        val needsStateMachine = findCyclicFunctions(functions, analysis)
 
         val startMethod = new ParserGenerator(
-            functionRanges.view.map(_.start).map(id => new ParserFunction(id, functions(id), producesResults(id), analysis(id))).toArray
+            functionRanges.view.map(_.start).map(id => new ParserFunction(id, functions(id), producesResults(id), needsStateMachine(id), analysis(id))).toArray
         ).generate()
 
         new ParseRunner {
@@ -106,6 +107,42 @@ object Optimizer {
                 case _ =>
             }
         }
+    }
+
+    private def findCyclicFunctions(functions: Map[Int, Array[Instr]], analysis: Map[Int, FunctionInfo]): Set[Int] = {
+        val graph = functions.map { case (ourId, instrs) =>
+            val instrInfos = analysis(ourId).instrInfos
+            ourId -> instrs.zipWithIndex.collect { case (Call(id, _), pos) if instrInfos(pos).isDefined => id}.toSet
+        }
+        val visited = mutable.Set.empty[Int]
+        val onStack = mutable.Set.empty[Int]
+        val inCycle = Set.newBuilder[Int]
+
+        def dfs(v: Int, path: List[Int]): Unit = {
+            if (onStack(v)) {
+                // mark the cycle portion of the path
+                val idx = path.indexOf(v)
+                if (idx >= 0) inCycle ++= path.drop(idx)
+                return
+            }
+
+            if (visited(v)) return
+
+            visited += v
+            onStack += v
+
+            for (w <- graph.getOrElse(v, Set.empty)) {
+                dfs(w, path :+ v)
+            }
+
+            onStack -= v
+        }
+
+        for (v <- graph.keys) {
+            if (!visited(v)) dfs(v, Nil)
+        }
+
+        inCycle.result()
     }
 
     private def analyzeAll(funcById: Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
