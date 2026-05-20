@@ -1,6 +1,6 @@
 package parsley.internal.machine.jit.codegen
 
-import parsley.internal.machine.instructions.FailMarker
+import parsley.internal.machine.instructions.{FailMarker, JitImpl}
 import parsley.internal.machine.jit.{ClassGenContext, InstrInfo}
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
 
@@ -16,7 +16,6 @@ class PlainFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, cla
     override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         loadContext()
         vis.visitMethodInsn(Opcodes.INVOKESTATIC, ParserGenerator.className(id), IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
-        performAfterActions(instrInfo.afterActions)
         jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
     }
 
@@ -37,5 +36,19 @@ class PlainFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, cla
             vis.visitInsn(Opcodes.ICONST_0)
             vis.visitInsn(Opcodes.IRETURN)
         }
+    }
+
+    override protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        if (function.tailInstrs(pos)) {
+            if ((returnType eq classOf[Any]) && function.producesResults) {
+                vis.visitInsn(Opcodes.ARETURN)
+                return
+            }
+            if ((returnType eq classOf[Boolean]) && !function.producesResults && instrInfo.jumpPaths.isEmpty) {
+                vis.visitInsn(Opcodes.IRETURN)
+                return
+            }
+        }
+        super.jumpUsingReturnValue(pos, instrInfo, returnType, intKind)
     }
 }

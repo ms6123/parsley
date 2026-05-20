@@ -105,7 +105,6 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
                 loadContext()
                 vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
         }
-        performAfterActions(instrInfo.afterActions)
         jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
     }
 

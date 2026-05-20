@@ -153,6 +153,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc)
                                       (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        performAfterActions(instrInfo.afterActions)
+
         val fallThroughLabel = labelForPos(pos + 1)
 
         if (returnType eq classOf[Int]) {
@@ -343,8 +345,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         }
 
         performCustomActions(instrInfo, info.afterActions)
-
-        performAfterActions(instrInfo.afterActions)
 
         jumpUsingReturnValue(pos, instrInfo, method.getReturnType, info.intReturnKind)
     }

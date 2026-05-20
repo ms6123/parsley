@@ -1,5 +1,6 @@
 package parsley.internal.machine.jit
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 
 import parsley.errors.ErrorBuilder
@@ -73,13 +74,12 @@ object Optimizer {
         val isCyclic = findCyclicFunctions(functions, analysis)
 
         val startMethod = new ParserGenerator(
-            functionRanges.view.map(_.start).map(id =>
-                new ParserFunction(
-                    id, functions(id), producesResults(id), isCyclic(id),
-                    findSuspensionPoints(functions(id), producesResults(id), analysis(id), isCyclic),
-                    analysis(id),
-                )
-            ).toArray
+            functionRanges.view.map(_.start).map { id =>
+                val tailInstrs = findTailInstrs(functions(id), analysis(id).instrInfos)
+                val suspensionPoints = findSuspensionPoints(functions(id), producesResults(id), analysis(id), isCyclic, tailInstrs)
+
+                new ParserFunction(id, functions(id), producesResults(id), isCyclic(id), tailInstrs, suspensionPoints, analysis(id))
+            }.toArray
         ).generate()
 
         new ParseRunner {
@@ -226,10 +226,71 @@ object Optimizer {
         new AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
     }
 
-    private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, info: FunctionInfo, isCyclic: Int => Boolean): Array[Int] =
+    private def findTailInstrs(instrs: Array[Instr], infos: Array[Option[InstrInfo]]): Set[Int] = {
+        val n = instrs.length
+
+        val resolved = Array.tabulate(n) { pc =>
+            if (infos(pc).isEmpty || !isNoop(instrs(pc))) Set(pc) else Set.empty[Int]
+        }
+
+        def resolveSuccessors(pcs: Seq[Successor]): Set[Int] =
+            pcs.view.map(_.pc).flatMap {
+                case -1 => Set(-1)
+                case pc => resolved(pc)
+            }.toSet
+
+        val noopPreds = Array.fill(n)(mutable.Set[Int]())
+        for (pc <- 0 until n; info <- infos(pc) if isNoop(instrs(pc)))
+            for (succ <- (info.goodPaths ++ info.badPath).map(_.pc) if succ >= 0)
+                noopPreds(succ) += pc
+
+        val inWorklist = mutable.Set[Int]()
+        val worklist = mutable.Queue[Int]()
+
+        def enqueue(pc: Int): Unit =
+            if (inWorklist.add(pc)) worklist.enqueue(pc)
+
+        (0 until n).filter(pc => infos(pc).isDefined && isNoop(instrs(pc))).foreach(enqueue)
+
+        while (worklist.nonEmpty) {
+            val pc = worklist.dequeue()
+            inWorklist -= pc
+            val incoming = resolveSuccessors(infos(pc).get.goodPaths ++ infos(pc).get.badPath)
+            if (incoming != resolved(pc)) {
+                resolved(pc) = incoming
+                noopPreds(pc).foreach(enqueue)
+            }
+        }
+
+        (0 until n).filter { i =>
+            !isNoop(instrs(i)) && (infos(i) match {
+                case None => false
+                case Some(info) =>
+                    val effectiveGood = resolveSuccessors(info.goodPaths)
+                    val effectiveBad = resolveSuccessors(info.badPath.toSeq)
+
+                    val goodOk = info.goodPaths.isEmpty ||
+                        effectiveGood.forall(pc => pc != -1 && isFunctionTerminator(instrs(pc)))
+
+                    val badOk = info.badPath.isEmpty ||
+                        effectiveBad.forall(_ == -1)
+
+                    goodOk && badOk
+            })
+        }.toSet
+    }
+
+    private def isNoop(instr: Instr): Boolean = instr match {
+        case instr: SpecializedInstr =>
+            val info = InstructionImpls.getImpl(instr)._2
+            info.noop && info.consumeOperands == 0 && info.beforeActions.isEmpty && info.afterActions.isEmpty
+        case _ => false
+    }
+
+    private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, info: FunctionInfo, isCyclic: Int => Boolean, isTail: Int => Boolean): Array[Int] =
         instrs.zipWithIndex.collect {
             case (Call(theirId, theyProduceResults), pos) if
-                info.instrInfos(pos).isDefined && isCyclic(theirId) && (!isFunctionTerminator(instrs(pos + 1)) || producesResults != theyProduceResults) =>
+                info.instrInfos(pos).isDefined && isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
                 pos
         }
 
