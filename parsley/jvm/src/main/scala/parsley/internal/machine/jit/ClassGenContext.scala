@@ -9,6 +9,7 @@ import scala.reflect.ClassTag
 
 import parsley.internal.machine.jit.ClassGenContext.objectPools
 import parsley.internal.machine.jit.ClassGenContext.Constants.*
+import parsley.internal.machine.jit.utils.DceClassAdapter
 
 import org.objectweb.asm.*
 import org.objectweb.asm.util.CheckClassAdapter
@@ -19,7 +20,7 @@ class ClassGenContext {
     def newClass(access: Int, name: String, superName: String = "java/lang/Object", interfaces: Seq[String] = Seq.empty)
                 (builder: ClassGenVisitor => Unit): Class[?] = {
         val writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        val visitor = new ClassGenVisitor(new CheckClassAdapter(writer), name)
+        val visitor = new ClassGenVisitor(new CheckClassAdapter(new DceClassAdapter(writer)), name)
         visitor.visit(Opcodes.V1_8, access, name, null, superName, interfaces.toArray)
         builder(visitor)
         visitor.visitEnd()
