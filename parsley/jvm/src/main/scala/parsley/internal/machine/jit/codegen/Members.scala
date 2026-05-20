@@ -45,6 +45,7 @@ private [codegen] object Members {
     }
 
     object Boxing {
+        val BOX_TO_BOOLEAN: Method = classOf[BoxesRunTime].getMethod("boxToBoolean", classOf[Boolean])
         val UNBOX_TO_BOOLEAN: Method = classOf[BoxesRunTime].getMethod("unboxToBoolean", classOf[AnyRef])
     }
 

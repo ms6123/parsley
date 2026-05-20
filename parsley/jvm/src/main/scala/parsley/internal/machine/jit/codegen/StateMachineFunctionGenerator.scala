@@ -100,12 +100,31 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
                 if (!producesResults) {
                     vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
                 }
+                jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
             case None =>
                 // Regular call
+                val isTail = function.tailInstrs(pos)
                 loadContext()
                 vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
+                if (isTail && producesResults && function.producesResults) {
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.getField(Members.Continuation.NEXT)
+                    vis.visitInsn(Opcodes.DUP_X1)
+                    vis.visitInsn(Opcodes.SWAP)
+                    vis.putField(Members.Continuation.RESULT)
+                    vis.visitInsn(Opcodes.ARETURN)
+                } else if (isTail && !producesResults && !function.producesResults) {
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.getField(Members.Continuation.NEXT)
+                    vis.visitInsn(Opcodes.DUP_X1)
+                    vis.visitInsn(Opcodes.SWAP)
+                    vis.callMethod(Members.Boxing.BOX_TO_BOOLEAN)
+                    vis.putField(Members.Continuation.RESULT)
+                    vis.visitInsn(Opcodes.ARETURN)
+                } else {
+                    jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
+                }
         }
-        jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
     }
 
     override protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {

@@ -17,7 +17,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     private val baseLocalIndex = if (implIsStatic) 1 else 2
     private val instrLabels = function.instrs.map(_ => new Label())
-    private val successLabel = new Label()
     private val failureLabel = new Label()
 
     def generate(): Unit = {
@@ -38,7 +37,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
             instr match {
                 case Halt | Return =>
-                    vis.visitJumpInsn(Opcodes.GOTO, successLabel)
+                    generateSuccess()
                 case Call(id, producesResults) =>
                     generateCall(pos, instrInfo, id, producesResults)
                 case Push(x) =>
@@ -94,8 +93,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
             }
         }
 
-        vis.visitLabel(successLabel)
-        generateSuccess()
         vis.visitLabel(failureLabel)
         generateFailure()
 
