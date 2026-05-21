@@ -159,10 +159,13 @@ private [deepembedding] final class DebugError[A](val p: StrictParsley[A], name:
 private [deepembedding] final class Profile[A](val p: StrictParsley[A], name: String, profiler: Profiler) extends Unary[A, A] {
     override def codeGen[M[_, +_]: ContOps, R](producesResults: Boolean)(implicit instrs: InstrBuffer, state: CodeGenState): M[R,Unit] = {
         val handler = state.freshLabel()
+        val endLabel = state.freshLabel()
         instrs += new instructions.ProfileEnter(handler, name, profiler)
         suspend(p.codeGen[M, R](producesResults)) |> {
+            instrs += new instructions.ProfileExitGood(endLabel, name, profiler)
             instrs += new instructions.Label(handler)
-            instrs += new instructions.ProfileExit(name, profiler)
+            instrs += new instructions.ProfileExitBad(name, profiler)
+            instrs += new instructions.Label(endLabel)
         }
     }
     final override def pretty(p: String): String = p

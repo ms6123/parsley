@@ -267,13 +267,18 @@ private [instructions] object LogErrEnd {
     }
 }
 
-private [internal] final class ProfileEnter(var label: Int, name: String, profiler: Profiler) extends InstrWithLabel with DebugInstr {
+private [internal] final class ProfileEnter(var label: Int, name: String, profiler: Profiler) extends InstrWithLabel with SpecializedInstr {
     private [this] val entries = profiler.entriesFor(name)
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.pushHandler(label)
         entries += profiler.monotone(System.nanoTime())
         pc + 1
+    }
+
+    @JitImpl
+    def apply(): Unit = {
+        entries += profiler.monotone(System.nanoTime())
     }
 
     override def toString: String = s"ProfileEnter($label, $name)"
@@ -285,18 +290,48 @@ private [internal] final class ProfileEnter(var label: Int, name: String, profil
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] final class ProfileExit(name: String, profiler: Profiler) extends Instr with DebugInstr {
+private [internal] final class ProfileExitGood(var label: Int, name: String, profiler: Profiler) extends InstrWithLabel with SpecializedInstr {
     private [this] val exits = profiler.exitsFor(name)
+
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         exits += profiler.monotone(System.nanoTime())
         ctx.popHandler()
-        if (ctx.good) pc + 1
-        else ctx.fail()
+        label
     }
 
-    override def toString: String = s"ProfileExit($name)"
+    @JitImpl
+    def apply(): Unit = {
+        exits += profiler.monotone(System.nanoTime())
+    }
 
-    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
+    override def copy: Instr = new ProfileExitGood(label, name, profiler)
+
+    override def toString: String = s"ProfileExitGood($name)"
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz, handlers.tail))
+}
+
+private [internal] final class ProfileExitBad(name: String, profiler: Profiler) extends Instr with SpecializedInstr {
+    private [this] val exits = profiler.exitsFor(name)
+
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
+        exits += profiler.monotone(System.nanoTime())
+        ctx.popHandler()
+        ctx.fail()
+    }
+
+    @JitImpl
+    def apply(): Unit = {
+        exits += profiler.monotone(System.nanoTime())
+    }
+
+    override def toString: String = s"ProfileExitBad($name)"
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 }
