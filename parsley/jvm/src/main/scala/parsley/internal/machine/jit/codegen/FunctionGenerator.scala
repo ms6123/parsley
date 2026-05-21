@@ -29,6 +29,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         generateImplStart()
         for ((instr, pos) <- function.instrs.zipWithIndex) {
             val instrInfo = function.info.instrInfos(pos)
+            val fallThroughLabel = labelForPos(pos + 1)
 
             vis.visitLabel(instrLabels(pos))
 
@@ -43,11 +44,22 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                 case Call(id, producesResults) =>
                     generateCall(pos, instrInfo, id, producesResults)
                 case Push(x) =>
+                    val successor = instrInfo.fallThroughPath.get
+
                     vis.loadObject(x.asInstanceOf[AnyRef])
+
+                    jumpToSuccessor(successor, fallThroughLabel)
                 case Fresh(x) =>
+                    val successor = instrInfo.fallThroughPath.get
+
                     vis.loadObject(x)
                     vis.callMethod(Members.Functions.APPLY0)
-                case Case(label) =>
+
+                    jumpToSuccessor(successor, fallThroughLabel)
+                case _: Case =>
+                    val leftSuccessor = instrInfo.jumpPaths.head.successor
+                    val rightSuccessor = instrInfo.fallThroughPath.get
+
                     val rightLabel = new Label()
 
                     vis.visitInsn(Opcodes.DUP)
@@ -56,12 +68,18 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
                     vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Left[?, ?]]))
                     vis.callMethod(Members.Either.LEFT_VALUE)
-                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
+                    performAfterActions(leftSuccessor.afterActions)
+                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(leftSuccessor.pc))
 
                     vis.visitLabel(rightLabel)
                     vis.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(classOf[Right[?, ?]]))
                     vis.callMethod(Members.Either.RIGHT_VALUE)
-                case ManyUntil(label) =>
+
+                    jumpToSuccessor(rightSuccessor, fallThroughLabel)
+                case _: ManyUntil =>
+                    val continueSuccessor = instrInfo.jumpPaths.head.successor
+                    val stopSuccessor = instrInfo.fallThroughPath.get
+
                     val stopLabel = new Label()
 
                     vis.visitInsn(Opcodes.SWAP)
@@ -73,11 +91,14 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     vis.visitJumpInsn(Opcodes.IF_ACMPEQ, stopLabel)
 
                     vis.callMethod(Members.Builder.ADD_ONE)
-                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(label))
+                    performAfterActions(continueSuccessor.afterActions)
+                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(continueSuccessor.pc))
 
                     vis.visitLabel(stopLabel)
                     vis.visitInsn(Opcodes.POP)
                     vis.callMethod(Members.Builder.RESULT)
+
+                    jumpToSuccessor(stopSuccessor, fallThroughLabel)
                 case WhiteSpaceLike(impl) =>
                     vis.loadObject(impl)
                     loadContext()
@@ -90,7 +111,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     loadContext()
                     vis.loadInt(pos)
                     vis.callMethod(Members.Instr.APPLY)
-                    performAfterActions(instrInfo.afterActions)
                     jumpUsingPc(pos, instrInfo)
             }
         }
@@ -130,13 +150,16 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         }
     }
 
+    private def jumpToSuccessor(successor: Successor, fallThroughLabel: Label)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        performAfterActions(successor.afterActions)
+        CodeGenUtils.goToLabel(labelForPos(successor.pc), fallThroughLabel)
+    }
+
     private def jumpUsingPc(pos: Int, instrInfo: InstrInfo)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        val successorPaths = Seq.newBuilder[JumpPath]
-
-        successorPaths ++= instrInfo.goodPaths.map(it => JumpPath(it.pc, labelForPos(it.pc), combineActions(it.afterActions)))
-        successorPaths ++= instrInfo.badPath.map(it => JumpPath(-1, labelForPos(it.pc), combineActions(it.afterActions)))
-
-        CodeGenUtils.jumpDispatch(successorPaths.result(), labelForPos(pos + 1))
+        CodeGenUtils.jumpDispatch(
+            instrInfo.allPaths(pos).map(it => JumpPath(it.indicator, labelForPos(it.successor.pc), combineActions(it.successor.afterActions))),
+            labelForPos(pos + 1)
+        )
     }
 
     private def combineActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor) =
@@ -144,8 +167,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc)
                                       (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        performAfterActions(instrInfo.afterActions)
-
         val fallThroughLabel = labelForPos(pos + 1)
 
         if (returnType eq classOf[Int]) {
@@ -159,7 +180,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     classOf[java.lang.Integer].getMethod("valueOf", classOf[Int])
             }
             val Some(Successor(badPc, badAfterActions)) = instrInfo.badPath
-            val Seq(Successor(goodPc, goodAfterActions)) = instrInfo.goodPaths
+            val Seq(IndicatedSuccessor(_, goodSucc)) = instrInfo.goodPaths(pos)
 
             val goodLabel = new Label()
 
@@ -171,21 +192,20 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
             vis.visitLabel(goodLabel)
             vis.callMethod(boxingMethod)
 
-            performAfterActions(goodAfterActions)
-            CodeGenUtils.goToLabel(labelForPos(goodPc), fallThroughLabel)
+            jumpToSuccessor(goodSucc, fallThroughLabel)
             return
         }
 
         if (returnType eq classOf[Boolean]) {
-            if (instrInfo.allPaths.size <= 1) {
+            if (instrInfo.allPaths(pos).map(_.successor).toSet.size <= 1) {
                 jumpUsingPc(pos, instrInfo)
                 return
             }
 
-            require(instrInfo.allPaths.size <= 2 && instrInfo.fallThroughPath.nonEmpty)
+            require(instrInfo.allPaths(pos).size <= 2 && instrInfo.fallThroughPath.nonEmpty)
 
-            val Successor(falsePc, falseAfterActions) = instrInfo.badPath.getOrElse(instrInfo.jumpPaths.head)
-            val Successor(truePc, trueAfterActions) = instrInfo.fallThroughPath.get
+            val Successor(falsePc, falseAfterActions) = instrInfo.badPath.getOrElse(instrInfo.jumpPaths.head.successor)
+            val trueSucc = instrInfo.fallThroughPath.get
             if (falseAfterActions.isEmpty) {
                 vis.visitJumpInsn(Opcodes.IFEQ, labelForPos(falsePc))
             } else {
@@ -196,18 +216,16 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                 vis.visitLabel(goodLabel)
             }
 
-            performAfterActions(trueAfterActions)
-            CodeGenUtils.goToLabel(labelForPos(truePc), fallThroughLabel)
+            jumpToSuccessor(trueSucc, fallThroughLabel)
             return
         }
 
-        val goodPaths = instrInfo.goodPaths
+        val goodPaths = instrInfo.goodPaths(pos).map(_.successor).toSet
 
         instrInfo.badPath match {
-            case Some(Successor(badPc, badAfterActions)) =>
-                if (goodPaths.isEmpty) {
-                    performAfterActions(badAfterActions)
-                    CodeGenUtils.goToLabel(labelForPos(badPc), fallThroughLabel)
+            case Some(badSucc@Successor(badPc, badAfterActions)) =>
+                if (goodPaths.isEmpty || goodPaths == Set(badSucc)) {
+                    jumpToSuccessor(badSucc, fallThroughLabel)
                     return
                 }
                 vis.visitInsn(Opcodes.DUP)
@@ -249,7 +267,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                         vis.visitLabel(afterLabel)
                     }
 
-                    instrInfo.jumpPaths
+                    instrInfo.jumpPaths.map(_.successor).toSet
                 }
         }
 

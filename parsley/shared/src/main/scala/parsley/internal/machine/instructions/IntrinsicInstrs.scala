@@ -279,7 +279,7 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
     override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(label -> StackInfo(stacksz - 1, handlers))
 }
 
-private [internal] final case class Case(var label: Int) extends InstrWithLabel with IntrinsicInstr {
+private [internal] final class Case(var label: Int) extends InstrWithLabel with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.peek[Either[_, _]] match {
@@ -295,7 +295,7 @@ private [internal] final case class Case(var label: Int) extends InstrWithLabel 
     override def toString: String = s"Case(left: $label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = Case(label)
+    override def copy: Instr = new Case(label)
 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 

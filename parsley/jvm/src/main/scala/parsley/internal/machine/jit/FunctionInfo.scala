@@ -40,8 +40,6 @@ object FunctionInfo {
 case class AfterActions(popOperands: Int = 0, pushHandlers: Set[Int] = Set.empty) {
     def isEmpty: Boolean = popOperands == 0 && pushHandlers.isEmpty
 
-    def relabel(labels: PartialFunction[Int, Int]): AfterActions = copy(pushHandlers = pushHandlers.flatMap(labels.lift(_)))
-
     def ++(other: AfterActions): AfterActions = copy(popOperands = popOperands + other.popOperands, pushHandlers = pushHandlers ++ other.pushHandlers)
 }
 
@@ -52,22 +50,22 @@ object AfterActions {
 }
 
 case class Successor(pc: Int, afterActions: AfterActions) {
-    def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc), afterActions.relabel(labels))
+    def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc))
 }
 
-case class InstrInfo private(stackInfo: StackInfo, afterActions: AfterActions, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
-    def goodPaths: Seq[Successor] = fallThroughPath.toSeq ++ jumpPaths
+case class IndicatedSuccessor(indicator: Int, successor: Successor)
 
-    def allPaths: Seq[Successor] = goodPaths ++ badPath.toSeq
+case class InstrInfo(stackInfo: StackInfo, fallThroughPath: Option[Successor], jumpPaths: Seq[IndicatedSuccessor], badPath: Option[Successor]) {
+    def goodPaths(pos: Int): Seq[IndicatedSuccessor] = fallThroughPath.map(IndicatedSuccessor(pos + 1, _)).toSeq ++ jumpPaths
+
+    def allPaths(pos: Int): Seq[IndicatedSuccessor] = goodPaths(pos) ++ badPath.map(IndicatedSuccessor(-1, _)).toSeq
 
     def relabel(labels: PartialFunction[Int, Int]): InstrInfo = {
-        def relabelSuccessor(successor: Successor) = successor.copy(afterActions = afterActions ++ successor.afterActions).relabel(labels)
-
         InstrInfo(
-            stackInfo.relabel(labels),
-            fallThroughPath.map(relabelSuccessor),
-            jumpPaths.map(relabelSuccessor),
-            badPath.map(relabelSuccessor),
+            stackInfo,
+            fallThroughPath.map(_.relabel(labels)),
+            jumpPaths.map(it => it.copy(successor = it.successor.relabel(labels))),
+            badPath.map(_.relabel(labels)),
         )
     }
 }
@@ -82,7 +80,7 @@ object InstrInfo {
                     Successor(pos + 1, AfterActions(pushHandlers = pushedHandlers(handlers, stackAfter.handlers)))
                 }
                 val jumpPaths = instr.jumpPaths(stacksz, handlers).filter(_ => canSucceed).map { case (target, stackAfter) =>
-                    Successor(target, AfterActions(pushHandlers = pushedHandlers(handlers, stackAfter.handlers)))
+                    IndicatedSuccessor(target, Successor(target, AfterActions(pushHandlers = pushedHandlers(handlers, stackAfter.handlers))))
                 }
                 val badPath = instr.failPath(stacksz, handlers).filter(_ => canFail).map { stackAfter =>
                     val activeHandler = stackAfter.handlers.head
@@ -93,29 +91,6 @@ object InstrInfo {
                 }
                 Some(InstrInfo(stackInfo, fallThroughPath, jumpPaths, badPath))
         }
-
-    def apply(stackInfo: StackInfo, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]): InstrInfo = {
-        val allPaths = fallThroughPath.toSeq ++ jumpPaths ++ badPath.toSeq
-        if (allPaths.isEmpty) {
-            InstrInfo(stackInfo, AfterActions(), fallThroughPath, jumpPaths, badPath)
-        } else {
-            val sharedPops = allPaths.map(_.afterActions.popOperands).min
-            val sharedHandlers = allPaths.map(_.afterActions.pushHandlers).reduce(_ & _)
-
-            def adjustSuccessor(successor: Successor): Successor = {
-                val afterActions = successor.afterActions
-                successor.copy(afterActions = AfterActions(afterActions.popOperands - sharedPops, afterActions.pushHandlers -- sharedHandlers))
-            }
-
-            InstrInfo(
-                stackInfo,
-                AfterActions(sharedPops, sharedHandlers),
-                fallThroughPath.map(adjustSuccessor),
-                jumpPaths.map(adjustSuccessor),
-                badPath.map(adjustSuccessor),
-            )
-        }
-    }
 
     private def pushedHandlers(handlersBefore: List[HandlerInfo], handlersAfter: List[HandlerInfo]): Set[Int] = {
         val pcsAfter = handlersAfter.reverse.view.map(_.pc)

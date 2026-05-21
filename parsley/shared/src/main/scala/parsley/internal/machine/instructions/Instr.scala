@@ -35,16 +35,9 @@ private [internal] abstract class Instr {
         }.toSeq
 }
 
-private [internal] case class StackInfo(stacksz: Int, handlers: List[HandlerInfo]) {
-    def relabel(labels: PartialFunction[Int, Int]): StackInfo = copy(handlers = handlers.flatMap(_.relabel(labels)))
-}
+private [internal] case class StackInfo(stacksz: Int, handlers: List[HandlerInfo])
 
-private [internal] case class HandlerInfo(pc: Int, stacksz: Int) {
-    def relabel(labels: PartialFunction[Int, Int]): Option[HandlerInfo] = pc match {
-        case -1 => Some(this)
-        case _ => labels.lift(pc).map(it => copy(pc = it))
-    }
-}
+private [internal] case class HandlerInfo(pc: Int, stacksz: Int)
 
 private [internal] trait SpecializedInstr {
     this: Instr =>

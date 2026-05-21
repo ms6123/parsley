@@ -170,19 +170,20 @@ object Optimizer {
 
         funcById.view.map { case (id, instrs) =>
             val stacks = analyze(instrs, state).stacks
-            val instrInfos = instrs.view.zipWithIndex.map { case (instr, pos) =>
+            val instrInfos = instrs.zipWithIndex.map { case (instr, pos) =>
                 val (canSucceed, canFail) = instr match {
                     case Call(callId, _) => state(callId)
                     case _ => (true, true)
                 }
                 InstrInfo(instr, pos, stacks(pos), canSucceed, canFail)
-            }.toArray
+            }
 
             val (reachableInstrs, reachableInfos) = pruneUnreachable(instrs, instrInfos)
+            val (finalInstrs, finalInfos) = collapseNoops(reachableInstrs, reachableInfos)
 
-            funcById(id) = reachableInstrs
+            funcById(id) = finalInstrs
 
-            id -> FunctionInfo(reachableInstrs, reachableInfos)
+            id -> FunctionInfo(finalInstrs, finalInfos)
         }.toMap
     }
 
@@ -236,64 +237,51 @@ object Optimizer {
             .toMap
 
         instrs.zip(infos)
-            .collect { case (instr, Some(info)) => (relabelLocal(instr)(indexMap.applyOrElse(_, (_: Int) => -1)), info.relabel(indexMap)) }
+            .collect { case (instr, Some(info)) => (instr, info.relabel(indexMap)) }
             .unzip
     }
 
-    private def findTailInstrs(instrs: Array[Instr], infos: Array[InstrInfo]): Set[Int] = {
-        val n = instrs.length
+    private def collapseNoops(instrs: Array[Instr], infos: Array[InstrInfo]): (Array[Instr], Array[InstrInfo]) = {
+        val collapsedDestinations = mutable.Map.empty[Int, Int]
 
-        val resolved = Array.tabulate(n) { pc =>
-            if (!isNoop(instrs(pc))) Set(pc) else Set.empty[Int]
+        @tailrec def go(originalPc: Int, pc: Int, afterActions: AfterActions): Successor =
+            if (pc == -1 || !isNoop(instrs(pc))) {
+                collapsedDestinations(originalPc) = pc
+                Successor(pc, afterActions)
+            }
+            else {
+                val info = infos(pc)
+                // Noops must have 1 successor, or they'd need logic to determine where to go
+                val Seq(IndicatedSuccessor(_, Successor(succPc, succAfterActions))) = info.allPaths(pc)
+                go(originalPc, succPc, afterActions ++ succAfterActions)
+            }
+
+        def collapseSuccessor(successor: Successor): Successor =
+            go(successor.pc, successor.pc, successor.afterActions)
+
+        val finalIndices = instrs.indices.filter(it => it == 0 || !isNoop(instrs(it)))
+
+        val collapsed = finalIndices.map { pos =>
+            val instr = instrs(pos)
+            val InstrInfo(stackInfo, fallThroughPath, jumpPaths, badPath) = infos(pos)
+
+            instr -> InstrInfo(
+                stackInfo,
+                fallThroughPath.map(collapseSuccessor),
+                jumpPaths.map(it => it.copy(successor = collapseSuccessor(it.successor))),
+                badPath.map(collapseSuccessor),
+            )
         }
 
-        def resolveSuccessors(pcs: Seq[Successor]): Set[Int] =
-            pcs.view.map(_.pc).flatMap {
-                case -1 => Set(-1)
-                case pc => resolved(pc)
-            }.toSet
+        val indexMap = finalIndices.zipWithIndex.toMap
 
-        val noopPreds = Array.fill(n)(mutable.Set[Int]())
-        for (pc <- 0 until n if isNoop(instrs(pc))) {
-            val info = infos(pc)
-            for (succ <- (info.goodPaths ++ info.badPath).map(_.pc) if succ >= 0) {
-                noopPreds(succ) += pc
-            }
+        val labels = Function.unlift { (label: Int) =>
+            indexMap.get(collapsedDestinations.getOrElse(label, label))
         }
 
-        val inWorklist = mutable.Set[Int]()
-        val worklist = mutable.Queue[Int]()
-
-        def enqueue(pc: Int): Unit =
-            if (inWorklist.add(pc)) worklist.enqueue(pc)
-
-        (0 until n).filter(pc => isNoop(instrs(pc))).foreach(enqueue)
-
-        while (worklist.nonEmpty) {
-            val pc = worklist.dequeue()
-            inWorklist -= pc
-            val incoming = resolveSuccessors(infos(pc).goodPaths ++ infos(pc).badPath)
-            if (incoming != resolved(pc)) {
-                resolved(pc) = incoming
-                noopPreds(pc).foreach(enqueue)
-            }
-        }
-
-        (0 until n).filter { i =>
-            !isNoop(instrs(i)) && {
-                val info = infos(i)
-                val effectiveGood = resolveSuccessors(info.goodPaths)
-                val effectiveBad = resolveSuccessors(info.badPath.toSeq)
-
-                val goodOk = info.goodPaths.isEmpty ||
-                    effectiveGood.forall(pc => pc != -1 && isFunctionTerminator(instrs(pc)))
-
-                val badOk = info.badPath.isEmpty ||
-                    effectiveBad.forall(_ == -1)
-
-                goodOk && badOk
-            }
-        }.toSet
+        collapsed.map { case (instr, info) =>
+            instr -> info.relabel(labels)
+        }.toArray.unzip
     }
 
     private def isNoop(instr: Instr): Boolean = instr match {
@@ -301,6 +289,14 @@ object Optimizer {
             val info = InstructionImpls.getImpl(instr)._2
             info.noop && info.consumeOperands == 0 && info.beforeActions.isEmpty && info.afterActions.isEmpty
         case _ => false
+    }
+
+    private def findTailInstrs(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Set[Int] = {
+        instrInfos.indices.filter { pos =>
+            val info = instrInfos(pos)
+            info.goodPaths(pos).forall(succ => instrs.lift(succ.successor.pc).exists(isFunctionTerminator)) &&
+                info.badPath.forall(_.pc == -1)
+        }.toSet
     }
 
     private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, isCyclic: Int => Boolean, isTail: Int => Boolean): Array[Int] =

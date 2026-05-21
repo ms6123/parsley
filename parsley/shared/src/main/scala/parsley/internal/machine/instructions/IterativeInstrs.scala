@@ -389,7 +389,7 @@ private [internal] object SepEndBy1WholeHandler extends Instr with SpecializedIn
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers.tail))
 }
 
-private [internal] final case class ManyUntil(var label: Int) extends InstrWithLabel with IntrinsicInstr {
+private [internal] final class ManyUntil(var label: Int) extends InstrWithLabel with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.stack.upop() match {
@@ -405,7 +405,7 @@ private [internal] final case class ManyUntil(var label: Int) extends InstrWithL
     override def toString: String = s"ManyUntil($label)"
     // $COVERAGE-ON$
 
-    override def copy: Instr = ManyUntil(label)
+    override def copy: Instr = new ManyUntil(label)
 
     override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz - 1, handlers))
 
