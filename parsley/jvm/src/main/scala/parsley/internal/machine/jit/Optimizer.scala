@@ -41,12 +41,9 @@ object Optimizer {
             case Call(id, producesResults) => id -> producesResults
         } ++ Iterator.single(0 -> true)).toMap
 
-        val functions = functionRanges.view.map { funcRange =>
+        val functions = mutable.Map.empty[Int, Array[Instr]] ++= functionRanges.view.map { funcRange =>
             for (i <- funcRange) {
-                instrs(i) match {
-                    case _: Call =>
-                    case instr => instr.relabel(_ - funcRange.start)
-                }
+                relabelLocal(instrs(i))(_ - funcRange.start)
             }
 
             val funcInstrs = mutable.ArrayBuffer.empty[Instr] ++= instrs.view.slice(funcRange.start, funcRange.last + 1)
@@ -62,21 +59,21 @@ object Optimizer {
                         funcInstrs.indices.last
                     })
                 }
-                instr.relabel(it => copiedHandlers.getOrElse(it, it))
+                relabelLocal(instr)(it => copiedHandlers.getOrElse(it, it))
             }
 
             tailrecOptimization(funcRange, funcInstrs)
 
             funcRange.start -> funcInstrs.toArray
-        }.toMap
+        }
 
         val analysis = analyzeAll(functions)
-        val isCyclic = findCyclicFunctions(functions, analysis)
+        val isCyclic = findCyclicFunctions(functions)
 
         val startMethod = new ParserGenerator(
             functionRanges.view.map(_.start).map { id =>
                 val tailInstrs = findTailInstrs(functions(id), analysis(id).instrInfos)
-                val suspensionPoints = findSuspensionPoints(functions(id), producesResults(id), analysis(id), isCyclic, tailInstrs)
+                val suspensionPoints = findSuspensionPoints(functions(id), producesResults(id), isCyclic, tailInstrs)
 
                 new ParserFunction(id, functions(id), producesResults(id), isCyclic(id), tailInstrs, suspensionPoints, analysis(id))
             }.toArray
@@ -110,10 +107,9 @@ object Optimizer {
         }
     }
 
-    private def findCyclicFunctions(functions: Map[Int, Array[Instr]], analysis: Map[Int, FunctionInfo]): Set[Int] = {
+    private def findCyclicFunctions(functions: collection.Map[Int, Array[Instr]]): Set[Int] = {
         val graph = functions.map { case (ourId, instrs) =>
-            val instrInfos = analysis(ourId).instrInfos
-            ourId -> instrs.zipWithIndex.collect { case (Call(id, _), pos) if instrInfos(pos).isDefined => id }.toSet
+            ourId -> instrs.collect { case Call(id, _) => id }.toSet
         }
         val visited = mutable.Set.empty[Int]
         val onStack = mutable.Set.empty[Int]
@@ -146,9 +142,9 @@ object Optimizer {
         inCycle.result()
     }
 
-    private def analyzeAll(funcById: Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
+    private def analyzeAll(funcById: mutable.Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
         val callers = {
-            val m = scala.collection.mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
+            val m = mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
             for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs.filter(_.isInstanceOf[Call])) {
                 m(id) = m(id) + callerId
             }
@@ -181,7 +177,12 @@ object Optimizer {
                 }
                 InstrInfo(instr, pos, stacks(pos), canSucceed, canFail)
             }.toArray
-            id -> FunctionInfo(instrs, instrInfos)
+
+            val (reachableInstrs, reachableInfos) = pruneUnreachable(instrs, instrInfos)
+
+            funcById(id) = reachableInstrs
+
+            id -> FunctionInfo(reachableInstrs, reachableInfos)
         }.toMap
     }
 
@@ -226,11 +227,24 @@ object Optimizer {
         new AnalysisResult(canSucceed, canFail, visited.map(_.headOption))
     }
 
-    private def findTailInstrs(instrs: Array[Instr], infos: Array[Option[InstrInfo]]): Set[Int] = {
+    private def pruneUnreachable(instrs: Array[Instr], infos: Array[Option[InstrInfo]]): (Array[Instr], Array[InstrInfo]) = {
+        val indexMap = infos
+            .zipWithIndex
+            .collect { case (Some(_), originalIndex) => originalIndex }
+            .zipWithIndex
+            .map { case (originalIndex, finalIndex) => originalIndex -> finalIndex }
+            .toMap
+
+        instrs.zip(infos)
+            .collect { case (instr, Some(info)) => (relabelLocal(instr)(indexMap.applyOrElse(_, (_: Int) => -1)), info.relabel(indexMap)) }
+            .unzip
+    }
+
+    private def findTailInstrs(instrs: Array[Instr], infos: Array[InstrInfo]): Set[Int] = {
         val n = instrs.length
 
         val resolved = Array.tabulate(n) { pc =>
-            if (infos(pc).isEmpty || !isNoop(instrs(pc))) Set(pc) else Set.empty[Int]
+            if (!isNoop(instrs(pc))) Set(pc) else Set.empty[Int]
         }
 
         def resolveSuccessors(pcs: Seq[Successor]): Set[Int] =
@@ -240,9 +254,12 @@ object Optimizer {
             }.toSet
 
         val noopPreds = Array.fill(n)(mutable.Set[Int]())
-        for (pc <- 0 until n; info <- infos(pc) if isNoop(instrs(pc)))
-            for (succ <- (info.goodPaths ++ info.badPath).map(_.pc) if succ >= 0)
+        for (pc <- 0 until n if isNoop(instrs(pc))) {
+            val info = infos(pc)
+            for (succ <- (info.goodPaths ++ info.badPath).map(_.pc) if succ >= 0) {
                 noopPreds(succ) += pc
+            }
+        }
 
         val inWorklist = mutable.Set[Int]()
         val worklist = mutable.Queue[Int]()
@@ -250,12 +267,12 @@ object Optimizer {
         def enqueue(pc: Int): Unit =
             if (inWorklist.add(pc)) worklist.enqueue(pc)
 
-        (0 until n).filter(pc => infos(pc).isDefined && isNoop(instrs(pc))).foreach(enqueue)
+        (0 until n).filter(pc => isNoop(instrs(pc))).foreach(enqueue)
 
         while (worklist.nonEmpty) {
             val pc = worklist.dequeue()
             inWorklist -= pc
-            val incoming = resolveSuccessors(infos(pc).get.goodPaths ++ infos(pc).get.badPath)
+            val incoming = resolveSuccessors(infos(pc).goodPaths ++ infos(pc).badPath)
             if (incoming != resolved(pc)) {
                 resolved(pc) = incoming
                 noopPreds(pc).foreach(enqueue)
@@ -263,20 +280,19 @@ object Optimizer {
         }
 
         (0 until n).filter { i =>
-            !isNoop(instrs(i)) && (infos(i) match {
-                case None => false
-                case Some(info) =>
-                    val effectiveGood = resolveSuccessors(info.goodPaths)
-                    val effectiveBad = resolveSuccessors(info.badPath.toSeq)
+            !isNoop(instrs(i)) && {
+                val info = infos(i)
+                val effectiveGood = resolveSuccessors(info.goodPaths)
+                val effectiveBad = resolveSuccessors(info.badPath.toSeq)
 
-                    val goodOk = info.goodPaths.isEmpty ||
-                        effectiveGood.forall(pc => pc != -1 && isFunctionTerminator(instrs(pc)))
+                val goodOk = info.goodPaths.isEmpty ||
+                    effectiveGood.forall(pc => pc != -1 && isFunctionTerminator(instrs(pc)))
 
-                    val badOk = info.badPath.isEmpty ||
-                        effectiveBad.forall(_ == -1)
+                val badOk = info.badPath.isEmpty ||
+                    effectiveBad.forall(_ == -1)
 
-                    goodOk && badOk
-            })
+                goodOk && badOk
+            }
         }.toSet
     }
 
@@ -287,16 +303,20 @@ object Optimizer {
         case _ => false
     }
 
-    private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, info: FunctionInfo, isCyclic: Int => Boolean, isTail: Int => Boolean): Array[Int] =
+    private def findSuspensionPoints(instrs: Array[Instr], producesResults: Boolean, isCyclic: Int => Boolean, isTail: Int => Boolean): Array[Int] =
         instrs.zipWithIndex.collect {
-            case (Call(theirId, theyProduceResults), pos) if
-                info.instrInfos(pos).isDefined && isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
+            case (Call(theirId, theyProduceResults), pos) if isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
                 pos
         }
 
     private def isFunctionTerminator(instr: Instr): Boolean = instr match {
         case Halt | Return => true
         case _ => false
+    }
+
+    private def relabelLocal[T <: Instr](instr: T)(labels: Int => Int): T = instr match {
+        case _: Call => instr
+        case instr => instr.relabel(labels)
     }
 }
 

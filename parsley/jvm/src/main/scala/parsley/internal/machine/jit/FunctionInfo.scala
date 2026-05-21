@@ -4,25 +4,26 @@ import scala.collection.mutable
 
 import parsley.internal.machine.instructions.{HandlerInfo, Instr, SpecializedInstr, StackInfo}
 import parsley.internal.machine.instructions.JitImpl.Param
+import parsley.internal.machine.jit.InstrInfo.optimizeActions
 
-class FunctionInfo(val instrInfos: Array[Option[InstrInfo]], val handlerSlots: Map[Int, Int])
+class FunctionInfo(val instrInfos: Array[InstrInfo], val handlerSlots: Map[Int, Int])
 
 object FunctionInfo {
-    def apply(instrs: Array[Instr], instrInfos: Array[Option[InstrInfo]]): FunctionInfo = {
+    def apply(instrs: Array[Instr], instrInfos: Array[InstrInfo]): FunctionInfo = {
         new FunctionInfo(instrInfos, allocateHandlerSlots(instrs, instrInfos))
     }
 
-    private def allocateHandlerSlots(instrs: Array[Instr], instrInfos: Array[Option[InstrInfo]]): Map[Int, Int] = {
+    private def allocateHandlerSlots(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Map[Int, Int] = {
         val usedHandlers = instrs.view
             .zip(instrInfos)
-            .collect { case (specialized: SpecializedInstr, Some(info)) => (specialized, info) }
+            .collect { case (specialized: SpecializedInstr, info) => (specialized, info) }
             .filter { case (instr, _) => InstructionImpls.getImpl(instr)._2.params.contains(Param.HandlerCheck) }
             .map(_._2.stackInfo.handlers.head.pc)
             .toSet
 
         val result = mutable.Map.empty[Int, Int]
 
-        for (handlers <- instrInfos.view.flatten.map(_.stackInfo.handlers.view.map(_.pc).reverse.drop(1))) {
+        for (handlers <- instrInfos.view.map(_.stackInfo.handlers.view.map(_.pc).reverse.drop(1))) {
             var slot = 0
             for (handler <- handlers if usedHandlers(handler)) {
                 result.get(handler) match {
@@ -37,19 +38,36 @@ object FunctionInfo {
     }
 }
 
-sealed trait AfterAction
+sealed trait AfterAction {
+    def relabel(labels: PartialFunction[Int, Int]): Option[AfterAction] = Some(this)
+}
 
 object AfterAction {
     case class PopOperands(n: Int) extends AfterAction
-    case class PushHandler(label: Int) extends AfterAction
+    case class PushHandler(label: Int) extends AfterAction {
+        override def relabel(labels: PartialFunction[Int, Int]): Option[AfterAction] = labels.lift(label).map(PushHandler)
+    }
 }
 
-case class Successor(pc: Int, afterActions: Seq[AfterAction])
+case class Successor(pc: Int, afterActions: Seq[AfterAction]) {
+    def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc), afterActions.flatMap(_.relabel(labels)))
+}
 
 case class InstrInfo(stackInfo: StackInfo, afterActions: Seq[AfterAction], fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
     def goodPaths: Seq[Successor] = fallThroughPath.toSeq ++ jumpPaths
 
     def allPaths: Seq[Successor] = goodPaths ++ badPath.toSeq
+
+    def relabel(labels: PartialFunction[Int, Int]): InstrInfo = {
+        def relabelSuccessor(successor: Successor) = successor.copy(afterActions = afterActions ++ successor.afterActions).relabel(labels)
+
+        optimizeActions(
+            stackInfo.relabel(labels),
+            fallThroughPath.map(relabelSuccessor),
+            jumpPaths.map(relabelSuccessor),
+            badPath.map(relabelSuccessor),
+        )
+    }
 }
 
 object InstrInfo {

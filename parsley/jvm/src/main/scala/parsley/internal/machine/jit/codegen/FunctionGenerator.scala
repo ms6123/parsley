@@ -27,7 +27,9 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
             null, null
         )
         generateImplStart()
-        for ((instr, pos) <- function.instrs.view.zipWithIndex; instrInfo <- function.info.instrInfos(pos)) {
+        for ((instr, pos) <- function.instrs.view.zipWithIndex) {
+            val instrInfo = function.info.instrInfos(pos)
+
             vis.visitLabel(instrLabels(pos))
 
             //                vis.loadObject(instr)

@@ -157,7 +157,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     private def generateFields(): Unit = {
         classVisitor.visitField(Opcodes.ACC_PRIVATE, Constants.LABEL_NAME, Constants.LABEL_DESC, null, null).visitEnd()
 
-        val callSaveInfos = returnLabels.keys.view.flatMap(function.info.instrInfos(_)).map(_.stackInfo)
+        val callSaveInfos = returnLabels.keys.view.map(function.info.instrInfos(_)).map(_.stackInfo)
         val maxSavedStack = callSaveInfos.map(_.stacksz).foldLeft(0)(_ max _)
         val maxSavedChecks = callSaveInfos.flatMap(_.handlers).map(_.pc).flatMap(function.info.handlerSlots.get).foldLeft(-1)(_ max _) + 1
 
