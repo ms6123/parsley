@@ -11,6 +11,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     extends FunctionGenerator(function, classVisitor) {
     private val self = Type.getObjectType(ParserGenerator.className(function.id))
     private val returnLabels = function.suspensionPoints.map(it => it -> new Label()).toMap
+    private val endLabel = new Label()
 
     override protected val implName: String = Constants.IMPL_NAME
     override protected val implDesc: String = Constants.IMPL_DESC
@@ -128,29 +129,23 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     }
 
     override protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        vis.visitVarInsn(Opcodes.ALOAD, 0)
-        vis.getField(Members.Continuation.NEXT)
-        if (function.producesResults) {
-            vis.visitInsn(Opcodes.DUP_X1)
-            vis.visitInsn(Opcodes.SWAP)
-        } else {
-            vis.visitInsn(Opcodes.DUP)
+        if (!function.producesResults) {
             vis.getField(Members.Boolean.TRUE)
         }
-        vis.putField(Members.Continuation.RESULT)
-        vis.visitInsn(Opcodes.ARETURN)
+        vis.visitJumpInsn(Opcodes.GOTO, endLabel)
     }
 
     override protected def generateFailure()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        vis.visitVarInsn(Opcodes.ALOAD, 0)
-        vis.getField(Members.Continuation.NEXT)
-        vis.visitInsn(Opcodes.DUP)
         if (function.producesResults) {
             vis.loadObject(FailMarker)
         } else {
             vis.getField(Members.Boolean.FALSE)
         }
-        vis.putField(Members.Continuation.RESULT)
+        vis.visitLabel(endLabel)
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.visitInsn(Opcodes.SWAP)
+        vis.callMethod(Members.Continuation.RETURN_WITH)
         vis.visitInsn(Opcodes.ARETURN)
     }
 

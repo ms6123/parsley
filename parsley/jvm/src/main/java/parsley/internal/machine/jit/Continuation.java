@@ -18,4 +18,10 @@ public abstract class Continuation {
         }
         return resultHolder.result;
     }
+
+    protected final Continuation returnWith(Object result) {
+        Continuation next = this.next;
+        next.result = result;
+        return next;
+    }
 }

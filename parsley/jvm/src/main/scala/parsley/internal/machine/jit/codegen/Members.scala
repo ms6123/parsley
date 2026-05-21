@@ -42,6 +42,7 @@ private [codegen] object Members {
         val RUN: Method = classOf[Continuation].getMethod("run", classOf[Continuation], classOf[JitContext])
         val RESULT: Field = classOf[Continuation].getField("result")
         val NEXT: Field = classOf[Continuation].getField("next")
+        val RETURN_WITH: Method = classOf[Continuation].getDeclaredMethod("returnWith", classOf[Object])
     }
 
     object Boxing {
