@@ -4,7 +4,6 @@ import scala.collection.mutable
 
 import parsley.internal.machine.instructions.{HandlerInfo, Instr, SpecializedInstr, StackInfo}
 import parsley.internal.machine.instructions.JitImpl.Param
-import parsley.internal.machine.jit.InstrInfo.optimizeActions
 
 class FunctionInfo(val instrInfos: Array[InstrInfo], val handlerSlots: Map[Int, Int])
 
@@ -38,22 +37,25 @@ object FunctionInfo {
     }
 }
 
-sealed trait AfterAction {
-    def relabel(labels: PartialFunction[Int, Int]): Option[AfterAction] = Some(this)
+case class AfterActions(popOperands: Int = 0, pushHandlers: Set[Int] = Set.empty) {
+    def isEmpty: Boolean = popOperands == 0 && pushHandlers.isEmpty
+
+    def relabel(labels: PartialFunction[Int, Int]): AfterActions = copy(pushHandlers = pushHandlers.flatMap(labels.lift(_)))
+
+    def ++(other: AfterActions): AfterActions = copy(popOperands = popOperands + other.popOperands, pushHandlers = pushHandlers ++ other.pushHandlers)
 }
 
-object AfterAction {
-    case class PopOperands(n: Int) extends AfterAction
-    case class PushHandler(label: Int) extends AfterAction {
-        override def relabel(labels: PartialFunction[Int, Int]): Option[AfterAction] = labels.lift(label).map(PushHandler)
-    }
+object AfterActions {
+    val empty: AfterActions = AfterActions()
+
+    def combine(actions: Seq[AfterActions]): AfterActions = actions.foldLeft(AfterActions())(_ ++ _)
 }
 
-case class Successor(pc: Int, afterActions: Seq[AfterAction]) {
-    def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc), afterActions.flatMap(_.relabel(labels)))
+case class Successor(pc: Int, afterActions: AfterActions) {
+    def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc), afterActions.relabel(labels))
 }
 
-case class InstrInfo(stackInfo: StackInfo, afterActions: Seq[AfterAction], fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
+case class InstrInfo private(stackInfo: StackInfo, afterActions: AfterActions, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]) {
     def goodPaths: Seq[Successor] = fallThroughPath.toSeq ++ jumpPaths
 
     def allPaths: Seq[Successor] = goodPaths ++ badPath.toSeq
@@ -61,7 +63,7 @@ case class InstrInfo(stackInfo: StackInfo, afterActions: Seq[AfterAction], fallT
     def relabel(labels: PartialFunction[Int, Int]): InstrInfo = {
         def relabelSuccessor(successor: Successor) = successor.copy(afterActions = afterActions ++ successor.afterActions).relabel(labels)
 
-        optimizeActions(
+        InstrInfo(
             stackInfo.relabel(labels),
             fallThroughPath.map(relabelSuccessor),
             jumpPaths.map(relabelSuccessor),
@@ -77,19 +79,45 @@ object InstrInfo {
                 None
             case Some(stackInfo@StackInfo(stacksz, handlers)) =>
                 val fallThroughPath = instr.fallThroughPath(stacksz, handlers).filter(_ => canSucceed).map { stackAfter =>
-                    Successor(pos + 1, handlerActions(handlers, stackAfter.handlers))
+                    Successor(pos + 1, AfterActions(pushHandlers = pushedHandlers(handlers, stackAfter.handlers)))
                 }
                 val jumpPaths = instr.jumpPaths(stacksz, handlers).filter(_ => canSucceed).map { case (target, stackAfter) =>
-                    Successor(target, handlerActions(handlers, stackAfter.handlers))
+                    Successor(target, AfterActions(pushHandlers = pushedHandlers(handlers, stackAfter.handlers)))
                 }
                 val badPath = instr.failPath(stacksz, handlers).filter(_ => canFail).map { stackAfter =>
                     val activeHandler = stackAfter.handlers.head
-                    Successor(activeHandler.pc, handlerActions(handlers, stackAfter.handlers) ++ popActions(stackAfter.stacksz, activeHandler.stacksz))
+                    Successor(
+                        activeHandler.pc,
+                        AfterActions(poppedOperands(stackAfter.stacksz, activeHandler.stacksz), pushedHandlers(handlers, stackAfter.handlers)),
+                    )
                 }
-                Some(optimizeActions(stackInfo, fallThroughPath, jumpPaths, badPath))
+                Some(InstrInfo(stackInfo, fallThroughPath, jumpPaths, badPath))
         }
 
-    private def handlerActions(handlersBefore: List[HandlerInfo], handlersAfter: List[HandlerInfo]): Seq[AfterAction] = {
+    def apply(stackInfo: StackInfo, fallThroughPath: Option[Successor], jumpPaths: Seq[Successor], badPath: Option[Successor]): InstrInfo = {
+        val allPaths = fallThroughPath.toSeq ++ jumpPaths ++ badPath.toSeq
+        if (allPaths.isEmpty) {
+            InstrInfo(stackInfo, AfterActions(), fallThroughPath, jumpPaths, badPath)
+        } else {
+            val sharedPops = allPaths.map(_.afterActions.popOperands).min
+            val sharedHandlers = allPaths.map(_.afterActions.pushHandlers).reduce(_ & _)
+
+            def adjustSuccessor(successor: Successor): Successor = {
+                val afterActions = successor.afterActions
+                successor.copy(afterActions = AfterActions(afterActions.popOperands - sharedPops, afterActions.pushHandlers -- sharedHandlers))
+            }
+
+            InstrInfo(
+                stackInfo,
+                AfterActions(sharedPops, sharedHandlers),
+                fallThroughPath.map(adjustSuccessor),
+                jumpPaths.map(adjustSuccessor),
+                badPath.map(adjustSuccessor),
+            )
+        }
+    }
+
+    private def pushedHandlers(handlersBefore: List[HandlerInfo], handlersAfter: List[HandlerInfo]): Set[Int] = {
         val pcsAfter = handlersAfter.reverse.view.map(_.pc)
 
         val matchCount = handlersBefore.reverse
@@ -99,38 +127,8 @@ object InstrInfo {
             .takeWhile { case (b, a) => b == a }
             .size
 
-        pcsAfter.drop(matchCount).map(AfterAction.PushHandler(_)).toList
+        pcsAfter.drop(matchCount).toSet
     }
 
-    private def popActions(startStack: Int, endStack: Int): Seq[AfterAction] =
-        if (endStack >= startStack) {
-            Seq.empty
-        } else {
-            Seq(AfterAction.PopOperands(startStack - endStack))
-        }
-
-    private def optimizeActions(stackInfo: StackInfo, fallThroughPathIn: Option[Successor], jumpPathsIn: Seq[Successor], badPathIn: Option[Successor]): InstrInfo = {
-        var fallThroughPath = fallThroughPathIn
-        var jumpPaths = jumpPathsIn
-        var badPath = badPathIn
-
-        val sharedActions = Seq.newBuilder[AfterAction]
-        while (true) {
-            val heads = (fallThroughPath.view ++ jumpPaths ++ badPath).map(_.afterActions.headOption).toSet.toSeq
-            heads match {
-                case Seq(Some(sharedAction)) =>
-                    sharedActions += sharedAction
-
-                    fallThroughPath = fallThroughPath.map(tailActions)
-                    jumpPaths = jumpPaths.map(tailActions)
-                    badPath = badPath.map(tailActions)
-                case _ =>
-                    return InstrInfo(stackInfo, sharedActions.result(), fallThroughPath, jumpPaths, badPath)
-            }
-        }
-
-        throw new AssertionError("unreachable")
-    }
-
-    private def tailActions(successor: Successor): Successor = successor.copy(afterActions = successor.afterActions.tail)
+    private def poppedOperands(startStack: Int, endStack: Int): Int = math.max(0, startStack - endStack)
 }

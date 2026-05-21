@@ -27,7 +27,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
             null, null
         )
         generateImplStart()
-        for ((instr, pos) <- function.instrs.view.zipWithIndex) {
+        for ((instr, pos) <- function.instrs.zipWithIndex) {
             val instrInfo = function.info.instrInfos(pos)
 
             vis.visitLabel(instrLabels(pos))
@@ -116,23 +116,17 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     protected def handlerLocal(label: Int) = function.info.handlerSlots.get(label).map(_ + baseLocalIndex)
 
-    protected def performAfterActions(actions: Seq[AfterAction])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        for (action <- actions) {
-            action match {
-                case AfterAction.PopOperands(n) =>
-                    for (_ <- 1 to n / 2) {
-                        vis.visitInsn(Opcodes.POP2)
-                    }
-                    if (n % 2 == 1) {
-                        vis.visitInsn(Opcodes.POP)
-                    }
-                case AfterAction.PushHandler(label) =>
-                    handlerLocal(label).foreach { local =>
-                        loadContext()
-                        vis.callMethod(Members.Context.GET_OFFSET)
-                        vis.visitVarInsn(Opcodes.ISTORE, local)
-                    }
-            }
+    protected def performAfterActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        for (_ <- 1 to actions.popOperands / 2) {
+            vis.visitInsn(Opcodes.POP2)
+        }
+        if (actions.popOperands % 2 == 1) {
+            vis.visitInsn(Opcodes.POP)
+        }
+        for (handler <- actions.pushHandlers; local <- handlerLocal(handler)) {
+            loadContext()
+            vis.callMethod(Members.Context.GET_OFFSET)
+            vis.visitVarInsn(Opcodes.ISTORE, local)
         }
     }
 
@@ -145,10 +139,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         CodeGenUtils.jumpDispatch(successorPaths.result(), labelForPos(pos + 1))
     }
 
-    private def combineActions(actions: Seq[AfterAction])(implicit vis: ClassGenContext#MethodGenVisitor) = actions match {
-        case Seq() => None
-        case actions => Some(() => performAfterActions(actions))
-    }
+    private def combineActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor) =
+        if (actions.isEmpty) None else Some(() => performAfterActions(actions))
 
     protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc)
                                       (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
@@ -293,7 +285,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         performCustomActions(instrInfo, info.beforeActions)
 
         if (info.noop) {
-            performAfterActions(Seq(AfterAction.PopOperands(info.consumeOperands)))
+            performAfterActions(AfterActions(popOperands = info.consumeOperands))
         } else {
             val instrClass = method.getDeclaringClass
 

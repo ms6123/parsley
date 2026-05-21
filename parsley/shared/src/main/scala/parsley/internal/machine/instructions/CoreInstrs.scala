@@ -130,15 +130,12 @@ private [internal] object DynCall {
 }
 
 // Control Flow
-private [internal] object Halt extends Instr with SpecializedInstr {
+private [internal] object Halt extends Instr with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.running = false
         pc
     }
-
-    @JitImpl(noop = true)
-    def apply(): Unit = ()
     
     // $COVERAGE-OFF$
     override def toString: String = "Halt"
@@ -167,14 +164,11 @@ private [internal] final case class Call(var label: Int, producesResults: Boolea
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(if (producesResults) stacksz + 1 else stacksz, handlers))
 }
 
-private [internal] object Return extends Instr with SpecializedInstr {
+private [internal] object Return extends Instr with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.ret()
     }
-    
-    @JitImpl(noop = true)
-    def apply(): Unit = ()
     
     // $COVERAGE-OFF$
     override def toString: String = "Return"
