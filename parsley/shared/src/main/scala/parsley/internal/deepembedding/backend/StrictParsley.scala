@@ -18,6 +18,7 @@ import ContOps.{perform, ContAdapter}
 import parsley.internal.machine.{instructions, Context, ParseRunner}
 import instructions.{Instr, Label}
 import StrictParsley.*
+import parsley.internal.deepembedding.frontend.LetMap
 import parsley.internal.machine.jit.Optimizer
 
 /** This is the root type of the parsley "backend": it represents a combinator tree
@@ -251,7 +252,7 @@ private [deepembedding] trait MZero extends StrictParsley[Nothing]
   *
   * @param numRefs the number of references required by the parser being generated
   */
-private [deepembedding] class CodeGenState(val numRefs: Int) {
+private [deepembedding] class CodeGenState(val numRefs: Int)(implicit letMap: LetMap) {
     /** The next jump-label identifier. */
     private var current = 0
     /** The shared-parsers that have been referenced at some point in the generation so far. */
@@ -279,6 +280,8 @@ private [deepembedding] class CodeGenState(val numRefs: Int) {
         (sub, producesResults, label) +=: queue
         label
     })
+
+    def getBody[A](sub: Let[A]): StrictParsley[A] = letMap.bodies(sub).asInstanceOf[StrictParsley[A]]
 
     /** Returns the next shared-parser that has been refered during code generation */
     def nextLet(): (Let[?], Boolean, Int) = queue.remove(0)
