@@ -10,14 +10,17 @@ import parsley.internal.deepembedding.ContOps.{suspend, ContAdapter}
 import parsley.internal.deepembedding.singletons.Pure
 import parsley.internal.collection.mutable.SinglyLinkedList
 import parsley.internal.machine.instructions
-import parsley.internal.machine.instructions.{ShuntToken, Atom, Operator}
+import parsley.internal.machine.instructions.{Atom, Operator, ShuntToken}
 import parsley.expr.{Fixity, Prefix}
+
 import parsley.internal.deepembedding.singletons.Fail
 import parsley.internal.errors.FlexibleCaret
 import parsley.expr.InfixL
 import parsley.expr.InfixR
 import parsley.expr.Postfix
 import parsley.expr.InfixN
+
+import parsley.internal.deepembedding.frontend.LetMap
 
 private [deepembedding] final class Precedence[A] private (prefixAtomChoice: StrictParsley[ShuntToken], postfixInfixChoice: StrictParsley[ShuntToken], wraps: Array[Array[Any => Any]]) extends StrictParsley[A] {
     override protected[backend] def codeGen[M[_, +_]: ContOps, R](producesResults: Boolean)(implicit instrs: StrictParsley.InstrBuffer, state: CodeGenState): M[R,Unit] = {
@@ -52,7 +55,7 @@ private [deepembedding] final class Precedence[A] private (prefixAtomChoice: Str
 
 private [deepembedding] final class StrictOp(val fixity: Fixity, val op: StrictParsley[Any], val prec: Int)
 private [deepembedding] object Precedence {
-    def apply[A](vatoms: List[StrictParsley[Any]], vops: List[StrictOp], wraps: Array[Any => Any]): Precedence[A] = {
+    def apply[A](vatoms: List[StrictParsley[Any]], vops: List[StrictOp], wraps: Array[Any => Any])(implicit lets: LetMap): Precedence[A] = {
         val maxLevel = wraps.length
         val atoms = unwrapChoices(vatoms).map(a => <*>(new Pure(r => new Atom(r, maxLevel)), a).optimise)
         val (prefixes, postfixInfixes) = vops.partition(_.fixity == Prefix)
@@ -61,7 +64,7 @@ private [deepembedding] object Precedence {
         new Precedence(prefixAtomChoice, postfixInfixChoice, buildPrecomputedWraps(wraps))
     }
 
-    private def buildChoiceNode[A](options: List[StrictParsley[A]]): StrictParsley[A] = options.map(_.optimise) match {
+    private def buildChoiceNode[A](options: List[StrictParsley[A]])(implicit lets: LetMap): StrictParsley[A] = options.map(_.optimise) match {
         case Nil => new Fail(new FlexibleCaret(0))
         case p :: Nil => p
         case p1 :: p2 :: Nil => <|>(p1, p2)
@@ -73,7 +76,7 @@ private [deepembedding] object Precedence {
         case p => p :: Nil
     }
 
-    private def buildOpChoice(op: StrictOp): StrictParsley[Operator] = {
+    private def buildOpChoice(op: StrictOp)(implicit lets: LetMap): StrictParsley[Operator] = {
         val opFn = op.fixity match {
             case InfixL => (x: Any) => new instructions.InfixLOp(x.asInstanceOf[(Any, Any) => Any], op.prec)
             case InfixR => (x: Any) => new instructions.InfixROp(x.asInstanceOf[(Any, Any) => Any], op.prec)

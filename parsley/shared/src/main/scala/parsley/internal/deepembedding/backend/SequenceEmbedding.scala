@@ -8,18 +8,19 @@ package parsley.internal.deepembedding.backend
 import parsley.XAssert.*
 
 import parsley.internal.collection.mutable.DoublyLinkedList
-import parsley.internal.deepembedding.ContOps, ContOps.{result, suspend, ContAdapter}
+import parsley.internal.deepembedding.ContOps
+import ContOps.{result, suspend, ContAdapter}
 import parsley.internal.deepembedding.frontend
 import parsley.internal.deepembedding.singletons.*
 import parsley.internal.machine.instructions
-
 import StrictParsley.InstrBuffer
+import parsley.internal.deepembedding.frontend.LetMap
 
 // Core Embedding
 private [deepembedding] final class <*>[A, B](var left: StrictParsley[A => B], var right: StrictParsley[A]) extends StrictParsley[B] {
     def inlinable: Boolean = false
     // TODO: Refactor
-    override def optimise: StrictParsley[B] = (left, right) match {
+    override def optimise(implicit lets: LetMap): StrictParsley[B] = (left, right) match {
         // Fusion laws
         case (uf, Pure(x)) if (uf.isInstanceOf[Pure[?]] || uf.isInstanceOf[_ <*> _]) => uf match {
             // first position fusion
@@ -87,7 +88,7 @@ private [deepembedding] final class <*>[A, B](var left: StrictParsley[A => B], v
 }
 
 private [deepembedding] final class >>=[A, B](val p: StrictParsley[A], private [>>=] val f: A => frontend.LazyParsley[B]) extends Unary[A, B] {
-    override def optimise: StrictParsley[B] = p match {
+    override def optimise(implicit lets: LetMap): StrictParsley[B] = p match {
         case z: MZero => z
         case _ => this
     }
@@ -138,7 +139,7 @@ private [deepembedding] final class Seq[A](private [backend] var before: DoublyL
 
     // TODO: Get behaves much like pure except for shifting positions
     // TODO: can this be optimised to reduce repeated matching?
-    override def optimise: StrictParsley[A] = this match {
+    override def optimise(implicit lets: LetMap): StrictParsley[A] = this match {
         // Assume that this is eliminated first, so not other before or afters
         case (_: Pure[?] | _: Get[?] | Line | Col | Offset) **> u => u
         case (p: MZero) **> _ => p
