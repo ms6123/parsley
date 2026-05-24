@@ -21,6 +21,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     override def generate(): Unit = {
         generateFields()
         generateEntrypoint()
+        generateStart()
         super.generate()
         generateCtor()
     }
@@ -42,11 +43,10 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 
         if (returnLabel.isEmpty && ctx.resolveCall(id).isCyclic) {
             // Tail call
-            vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
-            vis.visitInsn(Opcodes.DUP)
             vis.visitVarInsn(Opcodes.ALOAD, 0)
             vis.getField(Members.Continuation.NEXT)
-            vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+            loadContext()
+            vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, Constants.START_NAME, Constants.START_DESC, false)
             vis.visitInsn(Opcodes.ARETURN)
             return
         }
@@ -73,10 +73,10 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
                 vis.loadInt(pos + 1)
                 vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
 
-                vis.visitTypeInsn(Opcodes.NEW, calleeType.getInternalName)
-                vis.visitInsn(Opcodes.DUP)
                 vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.visitMethodInsn(Opcodes.INVOKESPECIAL, calleeType.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+                loadContext()
+                vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, Constants.START_NAME, Constants.START_DESC, false)
+
                 vis.visitInsn(Opcodes.ARETURN)
 
                 vis.visitLabel(returnLabel)
@@ -167,13 +167,11 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     private def generateEntrypoint(): Unit = {
         val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, FunctionGenerator.Constants.IMPL_NAME, FunctionGenerator.implDesc(function.producesResults), null, null)
 
-        vis.visitTypeInsn(Opcodes.NEW, self.getInternalName)
-        vis.visitInsn(Opcodes.DUP)
-
         vis.visitVarInsn(Opcodes.ALOAD, 0)
         vis.callMethod(Members.Context.GET_RESULT_HOLDER)
 
-        vis.visitMethodInsn(Opcodes.INVOKESPECIAL, self.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.visitMethodInsn(Opcodes.INVOKESTATIC, self.getInternalName, Constants.START_NAME, Constants.START_DESC, false)
 
         vis.visitVarInsn(Opcodes.ALOAD, 0)
         vis.callMethod(Members.Continuation.RUN)
@@ -188,8 +186,22 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
         vis.visitEnd()
     }
 
+    private def generateStart(): Unit = {
+        val vis = classVisitor.visitMethod(Opcodes.ACC_STATIC, Constants.START_NAME, Constants.START_DESC, null, null)
+
+        vis.visitTypeInsn(Opcodes.NEW, self.getInternalName)
+        vis.visitInsn(Opcodes.DUP)
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+
+        vis.visitMethodInsn(Opcodes.INVOKESPECIAL, self.getInternalName, Constants.CTOR_NAME, Constants.CTOR_DESC, false)
+
+        vis.visitInsn(Opcodes.ARETURN)
+        vis.visitEnd()
+    }
+
     private def generateCtor(): Unit = {
-        val vis = classVisitor.visitMethod(0, Constants.CTOR_NAME, Constants.CTOR_DESC, null, null)
+        val vis = classVisitor.visitMethod(Opcodes.ACC_PRIVATE, Constants.CTOR_NAME, Constants.CTOR_DESC, null, null)
 
         vis.visitVarInsn(Opcodes.ALOAD, 0)
         vis.visitVarInsn(Opcodes.ALOAD, 1)
@@ -203,6 +215,8 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 private object StateMachineFunctionGenerator {
     object Constants {
         val CONTINUATION: Type = Type.getType(classOf[Continuation])
+        val START_NAME: String = "start"
+        val START_DESC: String = Type.getMethodDescriptor(CONTINUATION, CONTINUATION, Type.getType(classOf[JitContext]))
         val CTOR_NAME: String = "<init>"
         val CTOR_DESC: String = Type.getMethodDescriptor(Type.VOID_TYPE, CONTINUATION)
         val IMPL_NAME: String = "step"
