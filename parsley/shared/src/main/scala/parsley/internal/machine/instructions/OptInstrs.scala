@@ -191,9 +191,11 @@ private [internal] final class JumpTableCharFunPred(val pred: Char => Boolean, v
 }
 
 private [internal] final class JumpTable
-    (jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var defaultMergeHandler: Int, private [this] var individualMergeHandler: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
+    (val jumpTable: JumpTablePreds, private [this] var default: Int, private [this] var defaultMergeHandler: Int, private [this] var individualMergeHandler: Int, size: Int, allErrorItems: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
     private [this] var defaultPreamble: Int = _
     private [this] var jumpTableFuncs: List[PartialFunction[Char, (Int, Iterable[ExpectItem])]] = _
+
+    def defaultIndicator: Int = default
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)

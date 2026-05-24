@@ -1,5 +1,6 @@
 package parsley.internal.machine.jit.codegen
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.*
@@ -104,6 +105,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     loadContext()
                     vis.callMethod(Members.WhiteSpaceLikeImpl.APPLY)
                     jumpUsingReturnValue(pos, instrInfo, classOf[Boolean])
+                case table: JumpTable =>
+                    applyJumpTable(pos, instrInfo, table)
                 case specialized: SpecializedInstr =>
                     applySpecialized(pos, instrInfo, specialized)
                 case _ =>
@@ -162,7 +165,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         )
     }
 
-    private def combineActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor) =
+    protected def combineActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor) =
         if (actions.isEmpty) None else Some(() => performAfterActions(actions))
 
     protected def jumpUsingReturnValue(pos: Int, instrInfo: InstrInfo, returnType: Class[?], intKind: JitImpl.IntKind = JitImpl.IntKind.Pc)
@@ -318,8 +321,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     vis.visitInsn(Opcodes.DUP_X2)
                     vis.visitInsn(Opcodes.POP)
                 case 3 =>
-                    val currentHandlers = instrInfo.stackInfo.handlers.view.map(_.pc)
-                    val localOffset = currentHandlers.map(handlerLocal).collectFirst { case Some(local) => local }.getOrElse(0) + baseLocalIndex
+                    val localOffset = freeLocalOffset(instrInfo)
 
                     val toStore = info.consumeOperands - 2
                     for (local <- toStore - 1 to 0 by -1) {
@@ -357,6 +359,66 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
         jumpUsingReturnValue(pos, instrInfo, method.getReturnType, info.intReturnKind)
     }
+
+    private def applyJumpTable(pos: Int, instrInfo: InstrInfo, instr: JumpTable)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        val destinationsByIndicator = instrInfo.jumpPaths.map(it => it.indicator -> it.successor).toMap
+        val defaultSuccessor = destinationsByIndicator(instr.defaultIndicator)
+        val charLocal = freeLocalOffset(instrInfo)
+        val defaultLabel = new Label()
+
+        @tailrec def dispatch(jumpTable: JumpTablePreds, loadChar: Boolean = false)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+            val fallThroughLabel = if (jumpTable.next eq null) defaultLabel else new Label()
+
+            if (loadChar) {
+                vis.visitVarInsn(Opcodes.ILOAD, charLocal)
+            }
+
+            jumpTable match {
+                case charMap: JumpTableCharMapPred =>
+                    val jumpPaths = charMap.map.view.map { case (char, (indicator, _)) =>
+                        val dest = destinationsByIndicator(indicator)
+                        JumpPath(char, labelForPos(dest.pc), combineActions(dest.afterActions))
+                    }.toSeq
+
+                    CodeGenUtils.switchDispatch(jumpPaths, fallThroughLabel, None)
+                case charFun: JumpTableCharFunPred =>
+                    val dest = destinationsByIndicator(charFun.label)
+
+                    vis.callMethod(Members.Boxing.BOX_TO_CHARACTER)
+                    vis.loadObject(charFun.pred)
+                    vis.visitInsn(Opcodes.SWAP)
+                    vis.callMethod(Members.Functions.APPLY1)
+                    vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
+                    vis.visitJumpInsn(Opcodes.IFEQ, fallThroughLabel)
+                    performAfterActions(dest.afterActions)
+                    vis.visitJumpInsn(Opcodes.GOTO, labelForPos(dest.pc))
+            }
+
+            vis.visitLabel(fallThroughLabel)
+            if (jumpTable.next ne null) {
+                dispatch(jumpTable.next, loadChar = true)
+            } else {
+                performAfterActions(defaultSuccessor.afterActions)
+                CodeGenUtils.goToLabel(labelForPos(defaultSuccessor.pc), labelForPos(pos + 1))
+            }
+        }
+
+        loadContext()
+        vis.callMethod(Members.Context.MORE_INPUT)
+        vis.visitJumpInsn(Opcodes.IFEQ, defaultLabel)
+
+        loadContext()
+        vis.callMethod(Members.Context.PEEK_CHAR)
+        if (instr.jumpTable.next ne null) {
+            vis.visitInsn(Opcodes.DUP)
+            vis.visitVarInsn(Opcodes.ISTORE, charLocal)
+        }
+
+        dispatch(instr.jumpTable)
+    }
+
+    protected def freeLocalOffset(instrInfo: InstrInfo): Int =
+        instrInfo.stackInfo.handlers.view.map(_.pc).map(handlerLocal).collectFirst { case Some(local) => local }.getOrElse(0) + baseLocalIndex
 }
 
 private [codegen] object FunctionGenerator {

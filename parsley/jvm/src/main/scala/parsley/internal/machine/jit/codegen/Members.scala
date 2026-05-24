@@ -7,13 +7,15 @@ import scala.runtime.BoxesRunTime
 
 import parsley.internal.machine.Context
 import parsley.internal.machine.instructions.{Instr, WhiteSpaceLike}
-import parsley.internal.machine.jit.{Continuation, ContinuationResult, JitContext}
+import parsley.internal.machine.jit.{Continuation, JitContext}
 
 private [codegen] object Members {
     object Context {
         val IS_GOOD: Method = classOf[JitContext].getMethod("good")
         val GET_OFFSET: Method = classOf[JitContext].getMethod("offset")
         val GET_RESULT_HOLDER: Method = classOf[JitContext].getMethod("resultHolder")
+        val MORE_INPUT: Method = classOf[JitContext].getMethod("moreInput")
+        val PEEK_CHAR: Method = classOf[JitContext].getMethod("peekChar")
     }
 
     object Instr {
@@ -32,6 +34,7 @@ private [codegen] object Members {
 
     object Functions {
         val APPLY0: Method = classOf[Function0[?]].getMethod("apply")
+        val APPLY1: Method = classOf[Function1[?, ?]].getMethod("apply", classOf[Any])
     }
 
     object WhiteSpaceLikeImpl {
@@ -47,6 +50,7 @@ private [codegen] object Members {
 
     object Boxing {
         val BOX_TO_BOOLEAN: Method = classOf[BoxesRunTime].getMethod("boxToBoolean", classOf[Boolean])
+        val BOX_TO_CHARACTER: Method = classOf[BoxesRunTime].getMethod("boxToCharacter", classOf[Char])
         val UNBOX_TO_BOOLEAN: Method = classOf[BoxesRunTime].getMethod("unboxToBoolean", classOf[AnyRef])
     }
 

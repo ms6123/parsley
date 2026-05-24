@@ -56,26 +56,8 @@ private[codegen] object CodeGenUtils {
                         vis.visitJumpInsn(Opcodes.GOTO, label1)
                 }
             case _ =>
-                val keys = successors.sortBy(_.indicator).toArray
-                val afterSwitchTasks = mutable.Buffer.empty[() => Unit]
-
-                val switchLabels = keys.map {
-                    case JumpPath(_, label, None) => label
-                    case JumpPath(_, label, afterActions) =>
-                        val newLabel = new Label()
-                        afterSwitchTasks += (() => {
-                            vis.visitLabel(newLabel)
-                            performActions(afterActions)
-                            vis.visitJumpInsn(Opcodes.GOTO, label)
-                        })
-                        newLabel
-                }
-
-                vis.visitLookupSwitchInsn(switchLabels.last, keys.view.init.map(_.indicator).toArray, switchLabels.init)
-
-                for (task <- afterSwitchTasks) {
-                    task()
-                }
+                val default +: rest = successors
+                switchDispatch(rest, default.label, default.afterAction)
         }
     }
 
@@ -94,6 +76,35 @@ private[codegen] object CodeGenUtils {
     def goToLabel(label: Label, fallThroughLabel: Label)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         if (label ne fallThroughLabel) {
             vis.visitJumpInsn(Opcodes.GOTO, label)
+        }
+    }
+
+    def switchDispatch(successors: Seq[JumpPath], defaultLabel: Label, defaultAfterAction: Option[() => Unit])
+                      (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        val afterSwitchTasks = mutable.Buffer.empty[() => Unit]
+
+        def makeLabel(label: Label, afterAction: Option[() => Unit]): Label =
+            afterAction match {
+                case None => label
+                case Some(afterActions) =>
+                    val newLabel = new Label()
+                    afterSwitchTasks += (() => {
+                        vis.visitLabel(newLabel)
+                        afterActions()
+                        vis.visitJumpInsn(Opcodes.GOTO, label)
+                    })
+                    newLabel
+            }
+
+        val keys = successors.sortBy(_.indicator).toArray
+
+        val switchLabels = keys.map(it => makeLabel(it.label, it.afterAction))
+        val realDefaultLabel = makeLabel(defaultLabel, defaultAfterAction)
+
+        vis.visitLookupSwitchInsn(realDefaultLabel, keys.map(_.indicator), switchLabels)
+
+        for (task <- afterSwitchTasks) {
+            task()
         }
     }
 
