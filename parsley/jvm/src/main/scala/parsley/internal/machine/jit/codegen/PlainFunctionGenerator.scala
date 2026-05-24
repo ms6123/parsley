@@ -12,6 +12,7 @@ class PlainFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, cla
     override protected val implName: String = IMPL_NAME
     override protected val implDesc: String = FunctionGenerator.implDesc(function.producesResults)
     override protected def implIsStatic: Boolean = true
+    override protected def contextIndex: Int = 0
 
     override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         loadContext()

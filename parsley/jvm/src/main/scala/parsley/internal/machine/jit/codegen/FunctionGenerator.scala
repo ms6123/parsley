@@ -15,8 +15,9 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
     protected val implName: String
     protected val implDesc: String
     protected def implIsStatic: Boolean
+    protected def contextIndex: Int
 
-    private val baseLocalIndex = if (implIsStatic) 1 else 2
+    private val baseLocalIndex = contextIndex + 1
     private val instrLabels = function.instrs.map(_ => new Label())
     private val failureLabel = new Label()
 
@@ -133,7 +134,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
     protected def generateFailure()(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
     protected def loadContext()(implicit vis: ClassGenContext#MethodGenVisitor): Unit =
-        vis.visitVarInsn(Opcodes.ALOAD, if (implIsStatic) 0 else 1)
+        vis.visitVarInsn(Opcodes.ALOAD, contextIndex)
 
     protected def labelForPos(pos: Int) = if (pos == -1) failureLabel else instrLabels.applyOrElse(pos, (_: Int) => null)
 
@@ -425,8 +426,8 @@ private [codegen] object FunctionGenerator {
         val JIT_CONTEXT: Type = Type.getType(classOf[JitContext])
         val CONTEXT: Type = Type.getType(classOf[Context])
         val IMPL_NAME = "parse"
-        val IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
-        val VOID_IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[Boolean]), JIT_CONTEXT)
+        private [FunctionGenerator] val IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[AnyRef]), JIT_CONTEXT)
+        private [FunctionGenerator] val VOID_IMPL_DESC: String = Type.getMethodDescriptor(Type.getType(classOf[Boolean]), JIT_CONTEXT)
     }
 
     def implDesc(producesResults: Boolean): String = if (producesResults) IMPL_DESC else VOID_IMPL_DESC

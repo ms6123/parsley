@@ -11,22 +11,33 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     extends FunctionGenerator(function, classVisitor) {
     private val self = Type.getObjectType(ParserGenerator.className(function.id))
     private val returnLabels = function.suspensionPoints.map(it => it -> new Label()).toMap
+    private val isPassthrough = returnLabels.isEmpty
     private val endLabel = new Label()
 
-    override protected val implName: String = Constants.IMPL_NAME
-    override protected val implDesc: String = Constants.IMPL_DESC
+    override protected val implName: String = if (isPassthrough) Constants.START_NAME else Constants.IMPL_NAME
+    override protected val implDesc: String = if (isPassthrough) Constants.START_DESC else Constants.IMPL_DESC
 
-    override protected def implIsStatic: Boolean = false
+    override protected def implIsStatic: Boolean = isPassthrough
+    override protected def contextIndex: Int = 1
 
     override def generate(): Unit = {
-        generateFields()
+        if (!isPassthrough) {
+            generateFields()
+        }
         generateEntrypoint()
-        generateStart()
+        if (!isPassthrough) {
+            generateStart()
+        }
         super.generate()
-        generateCtor()
+        if (!isPassthrough) {
+            generateCtor()
+        }
     }
 
     override protected def generateImplStart()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        if (isPassthrough) {
+            return
+        }
         vis.visitVarInsn(Opcodes.ALOAD, 0)
         vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
         CodeGenUtils.jumpDispatch(
@@ -43,8 +54,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 
         if (returnLabel.isEmpty && ctx.resolveCall(id).isCyclic) {
             // Tail call
-            vis.visitVarInsn(Opcodes.ALOAD, 0)
-            vis.getField(Members.Continuation.NEXT)
+            loadNextContinuation()
             loadContext()
             vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, Constants.START_NAME, Constants.START_DESC, false)
             vis.visitInsn(Opcodes.ARETURN)
@@ -108,15 +118,13 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
                 loadContext()
                 vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
                 if (isTail && producesResults && function.producesResults) {
-                    vis.visitVarInsn(Opcodes.ALOAD, 0)
-                    vis.getField(Members.Continuation.NEXT)
+                    loadNextContinuation()
                     vis.visitInsn(Opcodes.DUP_X1)
                     vis.visitInsn(Opcodes.SWAP)
                     vis.putField(Members.Continuation.RESULT)
                     vis.visitInsn(Opcodes.ARETURN)
                 } else if (isTail && !producesResults && !function.producesResults) {
-                    vis.visitVarInsn(Opcodes.ALOAD, 0)
-                    vis.getField(Members.Continuation.NEXT)
+                    loadNextContinuation()
                     vis.visitInsn(Opcodes.DUP_X1)
                     vis.visitInsn(Opcodes.SWAP)
                     vis.callMethod(Members.Boxing.BOX_TO_BOOLEAN)
@@ -145,7 +153,13 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 
         vis.visitVarInsn(Opcodes.ALOAD, 0)
         vis.visitInsn(Opcodes.SWAP)
-        vis.callMethod(Members.Continuation.RETURN_WITH)
+
+        if (!isPassthrough) {
+            vis.callMethod(Members.Continuation.RETURN_WITH)
+        } else {
+            vis.putField(Members.Continuation.RESULT)
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+        }
         vis.visitInsn(Opcodes.ARETURN)
     }
 
@@ -209,6 +223,13 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 
         vis.visitInsn(Opcodes.RETURN)
         vis.visitEnd()
+    }
+
+    private def loadNextContinuation()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        if (!isPassthrough) {
+            vis.getField(Members.Continuation.NEXT)
+        }
     }
 }
 
