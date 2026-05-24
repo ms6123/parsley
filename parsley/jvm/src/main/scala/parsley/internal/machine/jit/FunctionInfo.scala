@@ -9,7 +9,8 @@ class FunctionInfo(val instrInfos: Array[InstrInfo], val handlerSlots: Map[Int, 
 
 object FunctionInfo {
     def apply(instrs: Array[Instr], instrInfos: Array[InstrInfo]): FunctionInfo = {
-        new FunctionInfo(instrInfos, allocateHandlerSlots(instrs, instrInfos))
+        val handlerSlots = allocateHandlerSlots(instrs, instrInfos)
+        new FunctionInfo(instrInfos.map(_.filterHandlers(handlerSlots.contains)), allocateHandlerSlots(instrs, instrInfos))
     }
 
     private def allocateHandlerSlots(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Map[Int, Int] = {
@@ -41,6 +42,8 @@ case class AfterActions(popOperands: Int = 0, pushHandlers: Set[Int] = Set.empty
     def isEmpty: Boolean = popOperands == 0 && pushHandlers.isEmpty
 
     def ++(other: AfterActions): AfterActions = copy(popOperands = popOperands + other.popOperands, pushHandlers = pushHandlers ++ other.pushHandlers)
+
+    def filterHandlers(isUsed: Int => Boolean): AfterActions = copy(pushHandlers = pushHandlers.filter(isUsed))
 }
 
 object AfterActions {
@@ -51,9 +54,15 @@ object AfterActions {
 
 case class Successor(pc: Int, afterActions: AfterActions) {
     def relabel(labels: PartialFunction[Int, Int]): Successor = copy(pc = if (pc == -1) -1 else labels(pc))
+
+    def filterHandlers(isUsed: Int => Boolean): Successor = copy(afterActions = afterActions.filterHandlers(isUsed))
 }
 
-case class IndicatedSuccessor(indicator: Int, successor: Successor)
+case class IndicatedSuccessor(indicator: Int, successor: Successor) {
+    def relabel(labels: PartialFunction[Int, Int]): IndicatedSuccessor = copy(successor = successor.relabel(labels))
+
+    def filterHandlers(isUsed: Int => Boolean): IndicatedSuccessor = copy(successor = successor.filterHandlers(isUsed))
+}
 
 case class InstrInfo(stackInfo: StackInfo, fallThroughPath: Option[Successor], jumpPaths: Seq[IndicatedSuccessor], badPath: Option[Successor]) {
     def goodPaths(pos: Int): Seq[IndicatedSuccessor] = fallThroughPath.map(IndicatedSuccessor(pos + 1, _)).toSeq ++ jumpPaths
@@ -64,8 +73,17 @@ case class InstrInfo(stackInfo: StackInfo, fallThroughPath: Option[Successor], j
         InstrInfo(
             stackInfo,
             fallThroughPath.map(_.relabel(labels)),
-            jumpPaths.map(it => it.copy(successor = it.successor.relabel(labels))),
+            jumpPaths.map(_.relabel(labels)),
             badPath.map(_.relabel(labels)),
+        )
+    }
+
+    def filterHandlers(isUsed: Int => Boolean): InstrInfo = {
+        InstrInfo(
+            stackInfo,
+            fallThroughPath.map(_.filterHandlers(isUsed)),
+            jumpPaths.map(_.filterHandlers(isUsed)),
+            badPath.map(_.filterHandlers(isUsed)),
         )
     }
 }

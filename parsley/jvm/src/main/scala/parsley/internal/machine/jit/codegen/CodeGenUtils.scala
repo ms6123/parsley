@@ -109,4 +109,17 @@ private[codegen] object CodeGenUtils {
     }
 
     private def performActions(actions: Iterable[() => Unit]): Unit = actions.foreach(_())
+
+    def popN(n: Int)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = doN(n, Opcodes.POP, Opcodes.POP2)
+
+    def dupN(n: Int)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = doN(n, Opcodes.DUP, Opcodes.DUP2)
+
+    private def doN(n: Int, single: Int, double: Int)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        for (_ <- 1 to n / 2) {
+            vis.visitInsn(double)
+        }
+        if (n % 2 == 1) {
+            vis.visitInsn(single)
+        }
+    }
 }

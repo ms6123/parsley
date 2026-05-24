@@ -140,16 +140,15 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
     protected def handlerLocal(label: Int) = function.info.handlerSlots.get(label).map(_ + baseLocalIndex)
 
     protected def performAfterActions(actions: AfterActions)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
-        for (_ <- 1 to actions.popOperands / 2) {
-            vis.visitInsn(Opcodes.POP2)
-        }
-        if (actions.popOperands % 2 == 1) {
-            vis.visitInsn(Opcodes.POP)
-        }
-        for (handler <- actions.pushHandlers; local <- handlerLocal(handler)) {
+        CodeGenUtils.popN(actions.popOperands)
+
+        if (actions.pushHandlers.nonEmpty) {
             loadContext()
             vis.callMethod(Members.Context.GET_OFFSET)
-            vis.visitVarInsn(Opcodes.ISTORE, local)
+            CodeGenUtils.dupN(actions.pushHandlers.size - 1)
+        }
+        for (handler <- actions.pushHandlers) {
+            vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler).get)
         }
     }
 
