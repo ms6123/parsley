@@ -2,25 +2,19 @@ package parsley.internal.machine.jit
 
 import scala.collection.mutable
 
-import parsley.internal.machine.instructions.{HandlerInfo, Instr, SpecializedInstr, StackInfo}
-import parsley.internal.machine.instructions.JitImpl.Param
+import parsley.internal.machine.instructions.{HandlerInfo, Instr, StackInfo}
 
 class FunctionInfo(val instrInfos: Array[InstrInfo], val handlerSlots: Map[Int, Int])
 
 object FunctionInfo {
-    def apply(instrs: Array[Instr], instrInfos: Array[InstrInfo]): FunctionInfo = {
-        val handlerSlots = allocateHandlerSlots(instrs, instrInfos)
-        new FunctionInfo(instrInfos.map(_.filterHandlers(handlerSlots.contains)), allocateHandlerSlots(instrs, instrInfos))
+    def apply(instrInfos: Array[InstrInfo]): FunctionInfo = {
+        new FunctionInfo(instrInfos, allocateHandlerSlots(instrInfos))
     }
 
-    private def allocateHandlerSlots(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Map[Int, Int] = {
-        val usedHandlers = instrs.view
-            .zip(instrInfos)
-            .collect { case (specialized: SpecializedInstr, info) => (specialized, info) }
-            .filter { case (instr, _) => InstructionImpls.getImpl(instr)._2.params.contains(Param.HandlerCheck) }
-            .map(_._2.stackInfo.handlers.head.pc)
-            .toSet
-
+    private def allocateHandlerSlots(instrInfos: Array[InstrInfo]): Map[Int, Int] = {
+        val usedHandlers = instrInfos.flatMap { info =>
+            info.allSuccessors.view.flatMap(_.afterActions.pushHandlers)
+        }.toSet
         val result = mutable.Map.empty[Int, Int]
 
         for (handlers <- instrInfos.view.map(_.stackInfo.handlers.view.map(_.pc).reverse.drop(1))) {
@@ -68,6 +62,8 @@ case class InstrInfo(stackInfo: StackInfo, fallThroughPath: Option[Successor], j
     def goodPaths(pos: Int): Seq[IndicatedSuccessor] = fallThroughPath.map(IndicatedSuccessor(pos + 1, _)).toSeq ++ jumpPaths
 
     def allPaths(pos: Int): Seq[IndicatedSuccessor] = goodPaths(pos) ++ badPath.map(IndicatedSuccessor(-1, _)).toSeq
+
+    def allSuccessors: Seq[Successor] = fallThroughPath.toSeq ++ jumpPaths.map(_.successor) ++ badPath.toSeq
 
     def relabel(labels: PartialFunction[Int, Int]): InstrInfo = {
         InstrInfo(

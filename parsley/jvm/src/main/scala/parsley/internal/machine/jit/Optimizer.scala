@@ -7,6 +7,7 @@ import parsley.errors.ErrorBuilder
 
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
+import parsley.internal.machine.instructions.JitImpl.Param
 import parsley.internal.machine.jit.codegen.{ParserFunction, ParserGenerator}
 
 import parsley.{Failure, Result, Success}
@@ -179,11 +180,11 @@ object Optimizer {
             }
 
             val (reachableInstrs, reachableInfos) = pruneUnreachable(instrs, instrInfos)
-            val (finalInstrs, finalInfos) = collapseNoops(reachableInstrs, reachableInfos)
+            val (finalInstrs, finalInfos) = iterativelyCollapseNoops(reachableInstrs, reachableInfos)
 
             funcById(id) = finalInstrs
 
-            id -> FunctionInfo(finalInstrs, finalInfos)
+            id -> FunctionInfo(finalInfos)
         }.toMap
     }
 
@@ -241,25 +242,37 @@ object Optimizer {
             .unzip
     }
 
+    private def iterativelyCollapseNoops(instrs: Array[Instr], infos: Array[InstrInfo]): (Array[Instr], Array[InstrInfo]) = {
+        var (resInstrs, resInfos) = (instrs, infos)
+        while ({
+            val oldLength = resInstrs.length
+            val usedHandlers = findUsedHandlers(resInstrs, resInfos)
+            val res = collapseNoops(resInstrs, resInfos.map(_.filterHandlers(usedHandlers)))
+            resInstrs = res._1
+            resInfos = res._2
+            resInstrs.length != oldLength
+        }) {}
+        (resInstrs, resInfos)
+    }
+
     private def collapseNoops(instrs: Array[Instr], infos: Array[InstrInfo]): (Array[Instr], Array[InstrInfo]) = {
         val collapsedDestinations = mutable.Map.empty[Int, Int]
 
-        @tailrec def go(originalPc: Int, pc: Int, afterActions: AfterActions): Successor =
-            if (pc == -1 || !isNoop(instrs(pc))) {
+        @tailrec def go(originalPc: Int, pc: Int, afterActions: AfterActions): Successor = {
+            lazy val successor = findNoopSuccessor(instrs(pc), infos(pc))
+            if (pc == -1 || successor.isEmpty) {
                 collapsedDestinations(originalPc) = pc
                 Successor(pc, afterActions)
             }
             else {
-                val info = infos(pc)
-                // Noops must have 1 successor, or they'd need logic to determine where to go
-                val Seq(IndicatedSuccessor(_, Successor(succPc, succAfterActions))) = info.allPaths(pc)
-                go(originalPc, succPc, afterActions ++ succAfterActions)
+                go(originalPc, successor.get.pc, afterActions ++ successor.get.afterActions)
             }
+        }
 
         def collapseSuccessor(successor: Successor): Successor =
             go(successor.pc, successor.pc, successor.afterActions)
 
-        val finalIndices = instrs.indices.filter(it => it == 0 || !isNoop(instrs(it)))
+        val finalIndices = instrs.indices.filter(it => it == 0 || findNoopSuccessor(instrs(it), infos(it)).isEmpty)
 
         val collapsed = finalIndices.map { pos =>
             val instr = instrs(pos)
@@ -284,17 +297,36 @@ object Optimizer {
         }.toArray.unzip
     }
 
-    private def isNoop(instr: Instr): Boolean = instr match {
+    private def findNoopSuccessor(instr: Instr, instrInfo: InstrInfo): Option[Successor] = instr match {
         case instr: SpecializedInstr =>
-            val info = InstructionImpls.getImpl(instr)._2
-            info.noop && info.consumeOperands == 0 && info.beforeActions.isEmpty && info.afterActions.isEmpty
-        case _ => false
+            val implInfo = InstructionImpls.getImpl(instr)._2
+            if (!implInfo.noop || implInfo.beforeActions.nonEmpty || implInfo.afterActions.nonEmpty) {
+                None
+            } else {
+                val possible = instrInfo.allSuccessors.toSet
+                if (possible.size == 1) {
+                    val res = possible.head
+                    Some(res.copy(afterActions = res.afterActions ++ AfterActions(popOperands = implInfo.consumeOperands)))
+                } else {
+                    None
+                }
+            }
+        case _ => None
+    }
+
+    private def findUsedHandlers(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Set[Int] = {
+        instrs.view
+            .zip(instrInfos)
+            .collect { case (specialized: SpecializedInstr, info) => (specialized, info) }
+            .filter { case (instr, _) => InstructionImpls.getImpl(instr)._2.params.contains(Param.HandlerCheck) }
+            .map(_._2.stackInfo.handlers.head.pc)
+            .toSet
     }
 
     private def findTailInstrs(instrs: Array[Instr], instrInfos: Array[InstrInfo]): Set[Int] = {
         instrInfos.indices.filter { pos =>
             val info = instrInfos(pos)
-            info.goodPaths(pos).forall(succ => instrs.lift(succ.successor.pc).exists(isFunctionTerminator)) &&
+            info.goodPaths(pos).forall(succ => instrs.lift(succ.successor.pc).exists(isFunctionTerminator) && succ.successor.afterActions.popOperands == 0) &&
                 info.badPath.forall(_.pc == -1)
         }.toSet
     }

@@ -130,7 +130,7 @@ private [internal] object IterativeHandler extends Instr with SpecializedInstr {
         }
     }
 
-    @JitImpl(params = Array(Param.HandlerCheck))
+    @JitImpl(noop = true, params = Array(Param.HandlerCheck))
     def applyJit(ctx: Context, check: Int): Boolean = {
         // If the head of input stack is not the same size as the head of check stack, we fail to next handler
         ctx.offset == check

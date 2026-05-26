@@ -305,7 +305,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
         performCustomActions(instrInfo, info.beforeActions)
 
-        if (info.noop) {
+        if (info.noop && (method.getReturnType eq classOf[Unit])) {
             performAfterActions(AfterActions(popOperands = info.consumeOperands))
         } else {
             val instrClass = method.getDeclaringClass

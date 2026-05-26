@@ -261,8 +261,8 @@ private [internal] final class If(var label: Int) extends InstrWithLabel with Sp
         else pc + 1
     }
 
-    @JitImpl(consumeOperands = 1, params = Array(Param.Pc))
-    def apply(condition: Any, pc: Int): Boolean = {
+    @JitImpl(noop = true, consumeOperands = 1)
+    def apply(condition: Any): Boolean = {
         !condition.asInstanceOf[Boolean]
     }
 
@@ -359,7 +359,7 @@ private [internal] object Eof extends Instr {
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
 
-    @JitImpl
+    @JitImpl(noop = true)
     def apply(ctx: Context): Boolean = {
         ctx.offset == ctx.inputsz
     }
