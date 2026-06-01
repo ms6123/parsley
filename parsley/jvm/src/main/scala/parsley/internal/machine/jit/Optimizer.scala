@@ -169,7 +169,7 @@ object Optimizer {
             }
         }
 
-        funcById.view.map { case (id, instrs) =>
+        funcById.toMap.map { case (id, instrs) =>
             val stacks = analyze(instrs, state).stacks
             val instrInfos = instrs.zipWithIndex.map { case (instr, pos) =>
                 val (canSucceed, canFail) = instr match {
@@ -185,7 +185,7 @@ object Optimizer {
             funcById(id) = finalInstrs
 
             id -> FunctionInfo(finalInfos)
-        }.toMap
+        }
     }
 
     private def analyze(instrs: Array[Instr], knownResults: Int => (Boolean, Boolean)): AnalysisResult = {
