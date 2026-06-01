@@ -12,6 +12,8 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 
 private [internal] final class Satisfies(val f: Char => Boolean, expected: Iterable[ExpectDesc]) extends Instr with SpecializedInstr {
+    val posUpdateNeeded: Boolean = f('\n') || f('\t')
+
     def this(f: Char => Boolean, expected: LabelConfig) = this(f, expected.asExpectDescs)
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -22,10 +24,17 @@ private [internal] final class Satisfies(val f: Char => Boolean, expected: Itera
         else ctx.expectedFail(expected, unexpectedWidth = 1)
     }
 
-    @JitImpl(constants = Array("f"), intReturnKind = JitImpl.IntKind.Char)
-    def apply(f: Char => Boolean, ctx: Context): Int = {
+    @JitImpl(constants = Array("f", "posUpdateNeeded"), intReturnKind = JitImpl.IntKind.Char)
+    def apply(f: Char => Boolean, posUpdateNeeded: Boolean, ctx: Context): Int = {
         if (ctx.moreInput && f(ctx.peekChar)) {
-            ctx.consumeChar()
+            val c = ctx.peekChar
+            if (posUpdateNeeded) {
+                ctx.updatePos(c)
+            } else {
+                ctx.col += 1
+            }
+            ctx.offset += 1
+            c
         }
         else {
             -1
