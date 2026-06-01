@@ -9,6 +9,7 @@ import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 import parsley.internal.machine.instructions.JitImpl.Param
 import parsley.internal.machine.jit.codegen.{ParserFunction, ParserGenerator}
+import parsley.internal.machine.jit.utils.CycleBreaker
 
 import parsley.{Failure, Result, Success}
 
@@ -70,15 +71,16 @@ object Optimizer {
 
         val analysis = analyzeAll(functions)
         val isCyclic = findCyclicFunctions(functions)
+        val parserFunctions = functionRanges.view.map(_.start).map { id =>
+            val tailInstrs = findTailInstrs(functions(id), analysis(id).instrInfos)
+            val suspensionPoints = findSuspensionPoints(functions(id), producesResults(id), isCyclic, tailInstrs)
 
-        val startMethod = new ParserGenerator(
-            functionRanges.view.map(_.start).map { id =>
-                val tailInstrs = findTailInstrs(functions(id), analysis(id).instrInfos)
-                val suspensionPoints = findSuspensionPoints(functions(id), producesResults(id), isCyclic, tailInstrs)
+            new ParserFunction(id, functions(id), producesResults(id), isCyclic(id), tailInstrs, suspensionPoints, analysis(id))
+        }.toArray
 
-                new ParserFunction(id, functions(id), producesResults(id), isCyclic(id), tailInstrs, suspensionPoints, analysis(id))
-            }.toArray
-        ).generate()
+        breakPassthroughCycles(parserFunctions)
+
+        val startMethod = new ParserGenerator(parserFunctions).generate()
 
         new ParseRunner {
             override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
@@ -336,6 +338,18 @@ object Optimizer {
             case (Call(theirId, theyProduceResults), pos) if isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
                 pos
         }
+
+    private def breakPassthroughCycles(functions: Array[ParserFunction]): Unit = {
+        val functionsById = functions.view.map(it => it.id -> it).toMap
+
+        val graph = functions.view
+            .filter(_.isPassthrough)
+            .map(it => it.id -> it.instrs.collect { case Call(id, _) if functionsById(id).isPassthrough => id }.toSet)
+            .toMap
+        for (toBreak <- CycleBreaker.chooseBreakNodes(graph)) {
+            functionsById(toBreak).isPassthrough = false
+        }
+    }
 
     private def isFunctionTerminator(instr: Instr): Boolean = instr match {
         case Halt | Return => true

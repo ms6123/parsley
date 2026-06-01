@@ -11,7 +11,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     extends FunctionGenerator(function, classVisitor) {
     private val self = Type.getObjectType(ParserGenerator.className(function.id))
     private val returnLabels = function.suspensionPoints.map(it => it -> new Label()).toMap
-    private val isPassthrough = returnLabels.isEmpty
+    private val isPassthrough = function.isPassthrough
     private val endLabel = new Label()
 
     override protected val implName: String = if (isPassthrough) Constants.START_NAME else Constants.IMPL_NAME
