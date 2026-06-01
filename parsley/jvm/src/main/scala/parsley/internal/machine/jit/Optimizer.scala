@@ -3,15 +3,11 @@ package parsley.internal.machine.jit
 import scala.annotation.tailrec
 import scala.collection.mutable
 
-import parsley.errors.ErrorBuilder
-
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 import parsley.internal.machine.instructions.JitImpl.Param
 import parsley.internal.machine.jit.codegen.{JitParseRunner, ParserFunction, ParserGenerator}
-import parsley.internal.machine.jit.utils.CycleBreaker
-
-import parsley.{Failure, Result, Success}
+import parsley.internal.machine.jit.utils.{CycleBreaker, Tarjan}
 
 object Optimizer {
     private val IS_ENABLED: Boolean = System.getProperty("parsley.jit.enabled", "true").toBoolean
@@ -100,35 +96,7 @@ object Optimizer {
                 case DynCall(_) => 0 // Pretend each DynCall calls the root parser, explained in paper
             }.toSet
         }
-        val visited = mutable.Set.empty[Int]
-        val onStack = mutable.Set.empty[Int]
-        val inCycle = Set.newBuilder[Int]
-
-        def dfs(v: Int, path: List[Int]): Unit = {
-            if (onStack(v)) {
-                // mark the cycle portion of the path
-                val idx = path.indexOf(v)
-                if (idx >= 0) inCycle ++= path.drop(idx)
-                return
-            }
-
-            if (visited(v)) return
-
-            visited += v
-            onStack += v
-
-            for (w <- graph.getOrElse(v, Set.empty)) {
-                dfs(w, path :+ v)
-            }
-
-            onStack -= v
-        }
-
-        for (v <- graph.keys) {
-            if (!visited(v)) dfs(v, Nil)
-        }
-
-        inCycle.result()
+        Tarjan.findCyclicNodes(graph)
     }
 
     private def analyzeAll(funcById: mutable.Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
