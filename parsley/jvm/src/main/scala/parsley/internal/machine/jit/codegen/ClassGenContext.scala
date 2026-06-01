@@ -1,4 +1,4 @@
-package parsley.internal.machine.jit
+package parsley.internal.machine.jit.codegen
 
 import java.io.File
 import java.lang.reflect.{Field, Method, Modifier}
@@ -7,8 +7,8 @@ import java.nio.file.{Files, Paths}
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
-import parsley.internal.machine.jit.ClassGenContext.objectPools
-import parsley.internal.machine.jit.ClassGenContext.Constants.*
+import ClassGenContext.Constants.*
+import ClassGenContext.objectPools
 import parsley.internal.machine.jit.utils.DceClassAdapter
 
 import org.objectweb.asm.*
@@ -60,13 +60,7 @@ class ClassGenContext {
                 clinit.visitLdcInsn(Type.getObjectType(className))
                 clinit.visitLdcInsn(obj.toString)
                 clinit.loadInt(index)
-                clinit.visitMethodInsn(
-                    Opcodes.INVOKESTATIC,
-                    JIT_RUNTIME,
-                    GET_OBJECT.getName,
-                    Type.getMethodDescriptor(GET_OBJECT),
-                    false
-                )
+                clinit.callMethod(Members.JitRuntime.GET_OBJECT)
                 clinit.visitTypeInsn(Opcodes.CHECKCAST, Type.getInternalName(clazz))
 
                 clinit.visitFieldInsn(Opcodes.PUTSTATIC, className, clazz.getSimpleName + index, Type.getDescriptor(clazz))
@@ -147,8 +141,6 @@ class ClassGenContext {
 object ClassGenContext {
     private[jit] object Constants {
         val SHOULD_DUMP_CLASSES: Boolean = System.getProperty("parsley.jit.dump", "false").toBoolean
-        val JIT_RUNTIME: String = Type.getInternalName(classOf[JitRuntime])
-        val GET_OBJECT: Method = classOf[JitRuntime].getMethod("getObject", classOf[Class[?]], classOf[String], classOf[Int])
     }
 
     private val objectPools = mutable.WeakHashMap.empty[Class[?], Array[AnyRef]]

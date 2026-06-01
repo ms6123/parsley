@@ -2,8 +2,6 @@ package parsley.internal.machine.jit.codegen
 
 import scala.collection.mutable
 
-import parsley.internal.machine.jit.ClassGenContext
-
 import org.objectweb.asm.{Label, Opcodes}
 
 private[codegen] case class JumpPath(indicator: Int, label: Label, afterAction: Option[() => Unit])

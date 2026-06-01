@@ -4,6 +4,7 @@ import parsley.internal.machine.instructions.FailMarker
 import parsley.internal.machine.jit.*
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
 import parsley.internal.machine.jit.codegen.StateMachineFunctionGenerator.Constants
+import parsley.internal.machine.ParseRunner
 
 import org.objectweb.asm.{Label, Opcodes, Type}
 
@@ -50,9 +51,9 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     override protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         val calleeType = Type.getObjectType(ParserGenerator.className(id))
 
-        val returnLabel = returnLabels.get(pos)
+        val shouldSuspend = returnLabels.contains(pos)
 
-        if (returnLabel.isEmpty && ctx.resolveCall(id).isCyclic) {
+        if (!shouldSuspend && ctx.resolveCall(id).isCyclic) {
             // Tail call
             loadNextContinuation()
             loadContext()
@@ -61,78 +62,49 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
             return
         }
 
-        returnLabel match {
-            case Some(returnLabel) =>
-                for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
-                    vis.visitVarInsn(Opcodes.ALOAD, 0)
-                    vis.visitInsn(Opcodes.SWAP)
-                    vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
-                }
-
-                for (handler <- instrInfo.stackInfo.handlers) {
-                    function.info.handlerSlots.get(handler.pc) match {
-                        case Some(slot) =>
-                            vis.visitVarInsn(Opcodes.ALOAD, 0)
-                            vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(handler.pc).get)
-                            vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
-                        case None =>
-                    }
-                }
-
-                vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.loadInt(pos + 1)
-                vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
-
+        if (shouldSuspend) {
+            generateSuspension(pos, instrInfo, producesResults) {
                 vis.visitVarInsn(Opcodes.ALOAD, 0)
                 loadContext()
                 vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, Constants.START_NAME, Constants.START_DESC, false)
-
+            }
+        } else {
+            // Regular call
+            val isTail = function.tailInstrs(pos)
+            loadContext()
+            vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
+            if (isTail && producesResults && function.producesResults) {
+                loadNextContinuation()
+                vis.visitInsn(Opcodes.DUP_X1)
+                vis.visitInsn(Opcodes.SWAP)
+                vis.putField(Members.Continuation.RESULT)
                 vis.visitInsn(Opcodes.ARETURN)
-
-                vis.visitLabel(returnLabel)
-
-                for (handler <- instrInfo.stackInfo.handlers) {
-                    function.info.handlerSlots.get(handler.pc) match {
-                        case Some(slot) =>
-                            vis.visitVarInsn(Opcodes.ALOAD, 0)
-                            vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
-                            vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler.pc).get)
-                        case None =>
-                    }
-                }
-
-                for (i <- 0 until instrInfo.stackInfo.stacksz) {
-                    vis.visitVarInsn(Opcodes.ALOAD, 0)
-                    vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
-                }
-
-                vis.visitVarInsn(Opcodes.ALOAD, 0)
-                vis.getField(Members.Continuation.RESULT)
-                if (!producesResults) {
-                    vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
-                }
+            } else if (isTail && !producesResults && !function.producesResults) {
+                loadNextContinuation()
+                vis.visitInsn(Opcodes.DUP_X1)
+                vis.visitInsn(Opcodes.SWAP)
+                vis.callMethod(Members.Boxing.BOX_TO_BOOLEAN)
+                vis.putField(Members.Continuation.RESULT)
+                vis.visitInsn(Opcodes.ARETURN)
+            } else {
                 jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
-            case None =>
-                // Regular call
-                val isTail = function.tailInstrs(pos)
-                loadContext()
-                vis.visitMethodInsn(Opcodes.INVOKESTATIC, calleeType.getInternalName, IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
-                if (isTail && producesResults && function.producesResults) {
-                    loadNextContinuation()
-                    vis.visitInsn(Opcodes.DUP_X1)
-                    vis.visitInsn(Opcodes.SWAP)
-                    vis.putField(Members.Continuation.RESULT)
-                    vis.visitInsn(Opcodes.ARETURN)
-                } else if (isTail && !producesResults && !function.producesResults) {
-                    loadNextContinuation()
-                    vis.visitInsn(Opcodes.DUP_X1)
-                    vis.visitInsn(Opcodes.SWAP)
-                    vis.callMethod(Members.Boxing.BOX_TO_BOOLEAN)
-                    vis.putField(Members.Continuation.RESULT)
-                    vis.visitInsn(Opcodes.ARETURN)
-                } else {
-                    jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
-                }
+            }
+        }
+    }
+
+    override protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)
+                                          (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        // We need to save/restore 1 fewer operands than we have on the stack, since the topmost one we will use for the DynCall
+        val paramLocal = freeLocalOffset(instrInfo)
+        vis.visitVarInsn(Opcodes.ASTORE, paramLocal)
+
+        val fakeInfo = instrInfo.copy(stackInfo = instrInfo.stackInfo.copy(stacksz = instrInfo.stackInfo.stacksz - 1))
+        generateSuspension(pos, fakeInfo, true) {
+            vis.visitVarInsn(Opcodes.ALOAD, paramLocal)
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+            loadContext()
+            vis.loadObject(f)
+            vis.callMethod(Members.JitRuntime.DYN_CALL)
         }
     }
 
@@ -161,6 +133,59 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
             vis.visitVarInsn(Opcodes.ALOAD, 0)
         }
         vis.visitInsn(Opcodes.ARETURN)
+    }
+
+    private def generateSuspension(pos: Int, instrInfo: InstrInfo, producesResults: Boolean)(createContinuation: =>Unit)
+                                  (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        val returnLabel = returnLabels(pos)
+
+        for (i <- instrInfo.stackInfo.stacksz - 1 to 0 by -1) {
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+            vis.visitInsn(Opcodes.SWAP)
+            vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
+        }
+
+        for (handler <- instrInfo.stackInfo.handlers) {
+            function.info.handlerSlots.get(handler.pc) match {
+                case Some(slot) =>
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitVarInsn(Opcodes.ILOAD, handlerLocal(handler.pc).get)
+                    vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                case None =>
+            }
+        }
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.loadInt(pos + 1)
+        vis.visitFieldInsn(Opcodes.PUTFIELD, self.getInternalName, Constants.LABEL_NAME, Constants.LABEL_DESC)
+
+        createContinuation
+
+        vis.visitInsn(Opcodes.ARETURN)
+
+        vis.visitLabel(returnLabel)
+
+        for (handler <- instrInfo.stackInfo.handlers) {
+            function.info.handlerSlots.get(handler.pc) match {
+                case Some(slot) =>
+                    vis.visitVarInsn(Opcodes.ALOAD, 0)
+                    vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedCheckName(slot), Constants.SAVED_CHECK_DESC)
+                    vis.visitVarInsn(Opcodes.ISTORE, handlerLocal(handler.pc).get)
+                case None =>
+            }
+        }
+
+        for (i <- 0 until instrInfo.stackInfo.stacksz) {
+            vis.visitVarInsn(Opcodes.ALOAD, 0)
+            vis.visitFieldInsn(Opcodes.GETFIELD, self.getInternalName, Constants.savedStackName(i), Constants.SAVED_STACK_DESC)
+        }
+
+        vis.visitVarInsn(Opcodes.ALOAD, 0)
+        vis.getField(Members.Continuation.RESULT)
+        if (!producesResults) {
+            vis.callMethod(Members.Boxing.UNBOX_TO_BOOLEAN)
+        }
+        jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
     }
 
     private def generateFields(): Unit = {

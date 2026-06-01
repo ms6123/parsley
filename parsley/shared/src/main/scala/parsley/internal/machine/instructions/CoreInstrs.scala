@@ -108,17 +108,12 @@ private [internal] object Apply extends Instr with SpecializedInstr {
 }
 
 // Monadic
-private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) extends Instr with SpecializedInstr {
+private [internal] final class DynCall(val f: (Any, Int, Boolean) => ParseRunner) extends Instr with IntrinsicInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         val runner = f(ctx.stack.upop(), ctx.regs.length, false)
-        runner.dynCall(ctx, pc).asInstanceOf[Int]
-    }
-
-    @JitImpl(consumeOperands = 1)
-    def apply(x: Any, ctx: Context): Any = {
-        val runner = f(x, ctx.regs.length, true)
-        runner.dynCall(ctx, -1)
+        runner.dynCall(ctx, pc, null)
+        0
     }
 
     // $COVERAGE-OFF$
@@ -127,6 +122,8 @@ private [internal] final class DynCall(f: (Any, Int, Boolean) => ParseRunner) ex
 }
 private [internal] object DynCall {
     def apply[A](f: (A, Int, Boolean) => ParseRunner): DynCall = new DynCall(f.asInstanceOf[(Any, Int, Boolean) => ParseRunner])
+    
+    def unapply(x: DynCall): Some[(Any, Int, Boolean) => ParseRunner] = Some(x.f)
 }
 
 // Control Flow

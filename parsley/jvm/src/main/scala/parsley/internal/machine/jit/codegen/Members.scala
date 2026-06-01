@@ -7,7 +7,7 @@ import scala.runtime.BoxesRunTime
 
 import parsley.internal.machine.Context
 import parsley.internal.machine.instructions.{Instr, WhiteSpaceLike}
-import parsley.internal.machine.jit.{Continuation, JitContext}
+import parsley.internal.machine.jit.{Continuation, JitContext, JitRuntime}
 
 private [codegen] object Members {
     object Context {
@@ -57,5 +57,12 @@ private [codegen] object Members {
     object Boolean {
         val TRUE: Field = classOf[java.lang.Boolean].getField("TRUE")
         val FALSE: Field = classOf[java.lang.Boolean].getField("FALSE")
+    }
+
+    object JitRuntime {
+        val GET_OBJECT: Method = classOf[JitRuntime].getMethod("getObject", classOf[Class[?]], classOf[String], classOf[Int])
+        val DYN_CALL: Method = classOf[JitRuntime].getMethod(
+            "dynCall", classOf[Any], classOf[Continuation], classOf[JitContext], classOf[Function3[?, ?, ?, ?]]
+        )
     }
 }

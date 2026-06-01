@@ -1,7 +1,7 @@
 package parsley.internal.machine.jit.codegen
 
 import parsley.internal.machine.instructions.{FailMarker, JitImpl}
-import parsley.internal.machine.jit.{ClassGenContext, InstrInfo}
+import parsley.internal.machine.jit.{InstrInfo}
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
 
 import org.objectweb.asm.Opcodes

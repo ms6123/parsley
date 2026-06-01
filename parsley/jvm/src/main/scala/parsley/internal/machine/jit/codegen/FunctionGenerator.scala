@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.*
-import parsley.internal.machine.Context
+import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 import parsley.internal.machine.instructions.JitImpl.Param
 import parsley.internal.machine.jit.*
@@ -45,6 +45,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     generateSuccess()
                 case Call(id, producesResults) =>
                     generateCall(pos, instrInfo, id, producesResults)
+                case DynCall(f) =>
+                    generateDynCall(pos, instrInfo, f)
                 case Push(x) =>
                     val successor = instrInfo.fallThroughPath.get
 
@@ -126,6 +128,10 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
     }
 
     protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit
+
+    protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        throw new UnsupportedOperationException(s"Dynamic calls are not supported by $this")
+    }
 
     protected def generateImplStart()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = ()
 

@@ -165,12 +165,12 @@ private [parsley] object Context {
         override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
             new InterpreterContext(instrs, input, numRegs, sourceFile).run()
 
-        override def dynCall(ctx: Context, pc: Int): Int =
+        override def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Null =
             ctx match {
                 case ctx: InterpreterContext =>
                     ctx.call(0)
                     ctx.instrs = instrs
-                    0
+                    null
             }
     }
 }

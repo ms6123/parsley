@@ -12,9 +12,9 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
     private val ctx = new ClassGenContext()
     private val functionsById = functions.map(it => it.id -> it).toMap
 
-    def generate(): MethodHandle = {
+    def generate(): Class[?] = {
         val classes = functions.map(generate)
-        MethodHandles.lookup().findStatic(classes.head, IMPL_NAME, MethodType.methodType(classOf[AnyRef], classOf[JitContext]))
+        classes.head
     }
 
     private [codegen] def resolveCall(id: Int): ParserFunction = functionsById(id)

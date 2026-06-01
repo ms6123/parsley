@@ -8,7 +8,7 @@ import parsley.errors.ErrorBuilder
 import parsley.internal.machine.{Context, ParseRunner}
 import parsley.internal.machine.instructions.*
 import parsley.internal.machine.instructions.JitImpl.Param
-import parsley.internal.machine.jit.codegen.{ParserFunction, ParserGenerator}
+import parsley.internal.machine.jit.codegen.{JitParseRunner, ParserFunction, ParserGenerator}
 import parsley.internal.machine.jit.utils.CycleBreaker
 
 import parsley.{Failure, Result, Success}
@@ -80,24 +80,7 @@ object Optimizer {
 
         breakPassthroughCycles(parserFunctions)
 
-        val startMethod = new ParserGenerator(parserFunctions).generate()
-
-        new ParseRunner {
-            override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
-                new JitContext(startMethod, input, numRegs, sourceFile).run() match {
-                    case success: Success[?] => success
-                    case Failure(_) =>
-                        System.err.println(s"Falling back to interpreter")
-                        Context.interpreterRunner(originalInstrs)
-                            .run(input, numRegs, sourceFile)
-                }
-
-            override def dynCall(ctx: Context, pc: Int): Any =
-                ctx match {
-                    case ctx: JitContext =>
-                        startMethod.invokeExact(ctx)
-                }
-        }
+        new JitParseRunner(parserFunctions, originalInstrs)
     }
 
     private def tailrecOptimization(funcRange: Range, instrs: mutable.ArrayBuffer[Instr]): Unit = {
@@ -112,7 +95,10 @@ object Optimizer {
 
     private def findCyclicFunctions(functions: collection.Map[Int, Array[Instr]]): Set[Int] = {
         val graph = functions.map { case (ourId, instrs) =>
-            ourId -> instrs.collect { case Call(id, _) => id }.toSet
+            ourId -> instrs.collect {
+                case Call(id, _) => id
+                case DynCall(_) => 0 // Pretend each DynCall calls the root parser, explained in paper
+            }.toSet
         }
         val visited = mutable.Set.empty[Int]
         val onStack = mutable.Set.empty[Int]
@@ -337,6 +323,7 @@ object Optimizer {
         instrs.zipWithIndex.collect {
             case (Call(theirId, theyProduceResults), pos) if isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
                 pos
+            case (_: DynCall, pos) => pos
         }
 
     private def breakPassthroughCycles(functions: Array[ParserFunction]): Unit = {

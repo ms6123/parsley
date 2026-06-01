@@ -6,5 +6,5 @@ import parsley.errors.ErrorBuilder
 private[parsley] trait ParseRunner {
     def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A]
 
-    def dynCall(ctx: Context, pc: Int): Any
+    def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Any
 }
