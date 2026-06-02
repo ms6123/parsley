@@ -226,7 +226,7 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
     }
 
     private def generateStart(): Unit = {
-        val vis = classVisitor.visitMethod(Opcodes.ACC_STATIC, Constants.START_NAME, Constants.START_DESC, null, null)
+        val vis = classVisitor.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, Constants.START_NAME, Constants.START_DESC, null, null)
 
         vis.visitTypeInsn(Opcodes.NEW, self.getInternalName)
         vis.visitInsn(Opcodes.DUP)
