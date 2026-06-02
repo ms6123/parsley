@@ -351,9 +351,9 @@ private [internal] object NegLookGood extends Instr with SpecializedInstr {
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 }
 
-private [internal] object Eof extends Instr {
+private [internal] object Eof extends Instr with SpecializedInstr {
     private [this] final val expected = Some(EndOfInput)
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.offset == ctx.inputsz) pc + 1
         else ctx.expectedFail(expected, unexpectedWidth = 1)
