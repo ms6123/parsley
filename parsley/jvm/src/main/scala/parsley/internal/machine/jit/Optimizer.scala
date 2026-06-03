@@ -90,12 +90,7 @@ object Optimizer {
     }
 
     private def findCyclicFunctions(functions: collection.Map[Int, Array[Instr]]): Set[Int] = {
-        val graph = functions.map { case (ourId, instrs) =>
-            ourId -> instrs.collect {
-                case Call(id, _) => id
-                case DynCall(_) => 0 // Pretend each DynCall calls the root parser, explained in paper
-            }.toSet
-        }
+        val graph = functions.mapValues(calledIds).toMap
         Tarjan.findCyclicNodes(graph)
     }
 
@@ -291,15 +286,15 @@ object Optimizer {
         instrs.zipWithIndex.collect {
             case (Call(theirId, theyProduceResults), pos) if isCyclic(theirId) && (!isTail(pos) || producesResults != theyProduceResults) =>
                 pos
-            case (_: DynCall, pos) => pos
+            case (DynCall(_), pos) if !isTail(pos) || !producesResults => pos
         }
 
     private def breakPassthroughCycles(functions: Array[ParserFunction]): Unit = {
-        val functionsById = functions.view.map(it => it.id -> it).toMap
+        val functionsById = functions.iterator.map(it => it.id -> it).toMap
 
-        val graph = functions.view
+        val graph = functions.iterator
             .filter(_.isPassthrough)
-            .map(it => it.id -> it.instrs.collect { case Call(id, _) if functionsById(id).isPassthrough => id }.toSet)
+            .map(it => it.id -> calledIds(it.instrs).filter(functionsById(_).isPassthrough))
             .toMap
         for (toBreak <- CycleBreaker.chooseBreakNodes(graph)) {
             functionsById(toBreak).isPassthrough = false
@@ -315,6 +310,11 @@ object Optimizer {
         case _: Call => instr
         case instr => instr.relabel(labels)
     }
+
+    private def calledIds(instrs: Array[Instr]): Set[Int] = instrs.iterator.collect {
+        case Call(id, _) => id
+        case DynCall(_) => 0
+    }.toSet
 }
 
 private class AnalysisResult(val canSucceed: Boolean, val canFail: Boolean, val stacks: Array[Option[StackInfo]]) {

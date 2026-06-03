@@ -94,6 +94,15 @@ class StateMachineFunctionGenerator(function: ParserFunction, ctx: ParserGenerat
 
     override protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)
                                           (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        if (!returnLabels.contains(pos)) {
+            // Tail call
+            loadNextContinuation()
+            loadContext()
+            vis.loadObject(f)
+            vis.callMethod(Members.JitRuntime.DYN_CALL)
+            vis.visitInsn(Opcodes.ARETURN)
+            return
+        }
         // We need to save/restore 1 fewer operands than we have on the stack, since the topmost one we will use for the DynCall
         val paramLocal = freeLocalOffset(instrInfo)
         vis.visitVarInsn(Opcodes.ASTORE, paramLocal)
