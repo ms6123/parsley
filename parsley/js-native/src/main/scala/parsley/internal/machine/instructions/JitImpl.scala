@@ -8,12 +8,13 @@ final class JitImpl(val noop: Boolean = false,
                     val beforeActions: Array[JitImpl.Action.Value] = Array(),
                     val afterActions: Array[JitImpl.Action.Value] = Array(),
                     val constants: Array[String] = Array(),
-                    val params: Array[JitImpl.Param.Value] = Array()
+                    val params: Array[JitImpl.Param.Value] = Array(),
+                    val updateCheckOffsets: Array[Int] = Array()
                    ) extends StaticAnnotation
 
 object JitImpl {
     object Action extends Enumeration {
-        val PushTrue, Swap, DupX1, Dup, UpdateCheckOffset = Value
+        val PushTrue, Swap, DupX1, Dup = Value
     }
 
     object Param extends Enumeration {

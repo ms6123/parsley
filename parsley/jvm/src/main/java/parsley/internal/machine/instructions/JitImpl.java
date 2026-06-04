@@ -21,13 +21,14 @@ public @interface JitImpl {
     String[] constants() default {};
 
     Param[] params() default {};
+
+    int[] updateCheckOffsets() default {};
     
     enum Action {
         PushTrue,
         Swap,
         DupX1,
-        Dup,
-        UpdateCheckOffset
+        Dup
     }
 
     enum Param {

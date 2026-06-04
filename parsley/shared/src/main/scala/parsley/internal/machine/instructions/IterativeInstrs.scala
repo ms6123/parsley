@@ -21,7 +21,7 @@ private [internal] final class ManyJump(var label: Int) extends InstrWithLabel w
         label
     }
 
-    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(consumeOperands = 2, updateCheckOffsets = Array(0))
     def apply(builder: Any, x: Any): Any = {
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
     }
@@ -76,7 +76,7 @@ private [internal] final class SkipManyJump(var label: Int) extends InstrWithLab
         label
     }
 
-    @JitImpl(noop = true, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(noop = true, updateCheckOffsets = Array(0))
     def apply(): Unit = ()
 
     // $COVERAGE-OFF$
@@ -101,7 +101,7 @@ private [internal] final class ChainPostJump(var label: Int) extends InstrWithLa
         label
     }
 
-    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(consumeOperands = 2, updateCheckOffsets = Array(0))
     def apply(x: Any, op: Any): Any = {
         op.asInstanceOf[Any => Any](x)
     }
@@ -161,7 +161,7 @@ private [internal] final class ChainPreJump(var label: Int) extends InstrWithLab
         label
     }
 
-    @JitImpl(consumeOperands = 2, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(consumeOperands = 2, updateCheckOffsets = Array(0))
     def apply(g: Any, f: Any): Any = {
         new AndThen(f.asInstanceOf[Any => Any], g.asInstanceOf[Any => Any])
     }
@@ -189,7 +189,7 @@ private [internal] final class ChainlJump(var label: Int) extends InstrWithLabel
         label
     }
 
-    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(consumeOperands = 3, updateCheckOffsets = Array(0))
     def apply(x: Any, op: Any, y: Any): Any = {
         op.asInstanceOf[(Any, Any) => Any](x, y)
     }
@@ -288,7 +288,7 @@ private [internal] final class SepEndBy1Jump(var label: Int) extends InstrWithLa
         label
     }
 
-    @JitImpl(consumeOperands = 3, afterActions = Array(JitImpl.Action.UpdateCheckOffset, JitImpl.Action.PushTrue))
+    @JitImpl(consumeOperands = 3, updateCheckOffsets = Array(1), afterActions = Array(JitImpl.Action.PushTrue))
     def apply(builder: Any, @unused bool: Any, x: Any): Any = {
         builder.asInstanceOf[mutable.Builder[Any, Any]] += x
     }

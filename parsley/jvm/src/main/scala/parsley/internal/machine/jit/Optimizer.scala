@@ -251,7 +251,7 @@ object Optimizer {
     private def findNoopSuccessor(instr: Instr, instrInfo: InstrInfo): Option[Successor] = instr match {
         case instr: SpecializedInstr =>
             val implInfo = InstructionImpls.getImpl(instr)._2
-            if (!implInfo.noop || implInfo.beforeActions.nonEmpty || implInfo.afterActions.nonEmpty) {
+            if (!implInfo.noop || implInfo.beforeActions.nonEmpty || implInfo.afterActions.nonEmpty || implInfo.updateCheckOffsets.nonEmpty) {
                 None
             } else {
                 val possible = instrInfo.allSuccessors.toSet

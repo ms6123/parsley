@@ -197,7 +197,7 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
         token.handle(ctx, state, this)
     }
 
-    @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1), afterActions = Array(JitImpl.Action.UpdateCheckOffset))
+    @JitImpl(consumeOperands = 2, beforeActions = Array(JitImpl.Action.Swap, JitImpl.Action.DupX1), updateCheckOffsets = Array(0))
     def apply(token: Any, state: Any, ctx: Context): Int = {
         token.asInstanceOf[ShuntToken].handle(ctx, state.asInstanceOf[ShuntingYardState], this)
     }

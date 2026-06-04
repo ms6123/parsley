@@ -284,7 +284,15 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         CodeGenUtils.jumpDispatch(possiblePaths.headOption.map(it => JumpPath(it.pc, labelForPos(it.pc), combineActions(it.afterActions))), fallThroughLabel)
     }
 
-    private def performCustomActions(instrInfo: InstrInfo, actions: Array[JitImpl.Action])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+    private def updateCheckOffsets(instrInfo: InstrInfo, depths: Array[Int])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        for (depth <- depths; local <- handlerLocal(instrInfo.stackInfo.handlers(depth).pc)) {
+            loadContext()
+            vis.callMethod(Members.Context.GET_OFFSET)
+            vis.visitVarInsn(Opcodes.ISTORE, local)
+        }
+    }
+
+    private def performCustomActions(actions: Array[JitImpl.Action])(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
         for (action <- actions) {
             action match {
                 case JitImpl.Action.PushTrue =>
@@ -295,12 +303,6 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                     vis.visitInsn(Opcodes.DUP_X1)
                 case JitImpl.Action.Dup =>
                     vis.visitInsn(Opcodes.DUP)
-                case JitImpl.Action.UpdateCheckOffset =>
-                    handlerLocal(instrInfo.stackInfo.handlers.head.pc).foreach { local =>
-                        loadContext()
-                        vis.callMethod(Members.Context.GET_OFFSET)
-                        vis.visitVarInsn(Opcodes.ISTORE, local)
-                    }
             }
         }
     }
@@ -309,7 +311,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
         val (method, info) = InstructionImpls.getImpl(instr)
         val trailingParams = method.getParameterTypes.view.drop(info.consumeOperands + info.constants.length).toArray
 
-        performCustomActions(instrInfo, info.beforeActions)
+        performCustomActions(info.beforeActions)
 
         if (info.noop && (method.getReturnType eq classOf[Unit])) {
             performAfterActions(AfterActions(popOperands = info.consumeOperands))
@@ -361,7 +363,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
             vis.callMethod(method)
         }
 
-        performCustomActions(instrInfo, info.afterActions)
+        updateCheckOffsets(instrInfo, info.updateCheckOffsets)
+        performCustomActions(info.afterActions)
 
         jumpUsingReturnValue(pos, instrInfo, method.getReturnType, info.intReturnKind)
     }
