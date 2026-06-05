@@ -69,7 +69,7 @@ private [text] object ConcreteStringTemplate {
         ends.view.map(impl.makeStringParser(sbRef, valid, closeLabel)).toList
     }
     val addCodepoint = (sb: StringBuilder, cpo: Int) => {
-        if (cpo >= 0) parsley.unicode.addCodepoint(sb, cpo)
+        if (cpo >= 0) parsley.unicode.addCodepoint(sb, cpo): Unit
         sb
     }
 

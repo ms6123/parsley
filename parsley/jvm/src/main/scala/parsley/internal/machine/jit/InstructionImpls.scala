@@ -9,7 +9,7 @@ import java.lang.reflect.Method
 
 import scala.collection.mutable
 
-import parsley.internal.machine.instructions.{Instr, JitImpl, SpecializedInstr}
+import parsley.internal.machine.instructions.{JitImpl, SpecializedInstr}
 
 object InstructionImpls {
     private val cache = mutable.Map.empty[Class[?], (Method, JitImpl)]

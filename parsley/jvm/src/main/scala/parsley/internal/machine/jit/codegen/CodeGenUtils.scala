@@ -59,7 +59,7 @@ private[codegen] object CodeGenUtils {
                         vis.visitJumpInsn(Opcodes.GOTO, label1)
                 }
             case _ =>
-                val default +: rest = successors
+                val default +: rest = successors: @unchecked
                 switchDispatch(rest, default.label, default.afterAction)
         }
     }

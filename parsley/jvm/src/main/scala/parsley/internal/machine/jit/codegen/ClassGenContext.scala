@@ -34,7 +34,7 @@ class ClassGenContext {
         if (SHOULD_DUMP_CLASSES) {
             val file = Paths.get("jit-classes", name.replace('/', File.separatorChar) + ".class")
             Files.createDirectories(file.getParent)
-            Files.write(file, bytes)
+            Files.write(file, bytes): Unit
         }
         val clazz = classLoader.defineClass(name.replace('/', '.'), bytes)
         objectPools.put(clazz, visitor.objectPool.toArray)
@@ -85,7 +85,8 @@ class ClassGenContext {
             if (cls.isPrimitive) {
                 cls match {
                     case java.lang.Boolean.TYPE => visitInsn(if (obj.asInstanceOf[Boolean]) Opcodes.ICONST_1 else Opcodes.ICONST_0)
-                    case java.lang.Character.TYPE => loadInt(obj.asInstanceOf[Char])
+                    case java.lang.Character.TYPE => loadInt(obj.asInstanceOf[Char].toInt)
+                    case _ => throw new UnsupportedOperationException(s"Cannot load primitive $cls")
                 }
             } else if (obj eq null) {
                 visitInsn(Opcodes.ACONST_NULL)

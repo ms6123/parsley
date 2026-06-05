@@ -34,7 +34,7 @@ private [internal] final class Satisfies(val f: Char => Boolean, expected: Itera
                 ctx.col += 1
             }
             ctx.offset += 1
-            c
+            c.toInt
         }
         else {
             -1

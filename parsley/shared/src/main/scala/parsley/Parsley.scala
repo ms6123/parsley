@@ -13,7 +13,6 @@ import parsley.expr.{chain, infix}
 
 import parsley.internal.diagnostics.UserException
 import parsley.internal.deepembedding.{frontend, singletons}
-import parsley.internal.machine.Context
 
 import Parsley.{emptyErr, transPure => pure, some}
 import XCompat.* // substituteCo
@@ -912,7 +911,7 @@ final class Parsley[+A] private [parsley] (private [parsley] val internal: front
       *
       * @group special
       */
-    def force(): Unit = internal.force()
+    def force(): Unit = internal.force(): Unit
 
     /** Provides an indicator that this parser will likely stack-overflow and so a stack-safe
       * construction should be used when "compiling" this parser.

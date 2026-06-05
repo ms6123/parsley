@@ -196,7 +196,7 @@ private [instructions] abstract class WhiteSpaceLike extends CommentLexer with I
 
 private [machine] object WhiteSpaceLike {
     @FunctionalInterface
-    trait Impl {
+    private [machine] trait Impl {
         def apply(ctx: Context): Boolean
     }
 

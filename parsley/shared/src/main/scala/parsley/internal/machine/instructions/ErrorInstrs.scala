@@ -8,7 +8,6 @@ package parsley.internal.machine.instructions
 import parsley.internal.errors.{CaretWidth, RigidCaret, UnexpectDesc}
 import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
-import parsley.internal.machine.errors.{DefuncError, EmptyError}
 
 private [internal] final class RelabelHints(labels: Iterable[String]) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {

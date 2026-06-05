@@ -21,5 +21,7 @@ private [parsley] class InterpreterRunner(val instrs: Array[Instr], numRegs: Int
                 ctx.call(0)
                 ctx.instrs = instrs
                 null
+            case _ =>
+                throw new IllegalStateException("Cannot mix contexts in DynCall")
         }
 }

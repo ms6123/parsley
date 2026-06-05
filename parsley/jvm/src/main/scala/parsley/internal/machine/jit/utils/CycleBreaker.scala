@@ -39,7 +39,7 @@ object CycleBreaker {
                 }
 
                 visiting.remove(node)
-                visited.add(node)
+                visited.add(node): Unit
             }
 
             for (node <- sortedKeys) {

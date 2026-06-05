@@ -8,7 +8,6 @@ package parsley.internal.machine.instructions
 import scala.annotation.tailrec
 
 import parsley.XAssert.*
-import parsley.errors.VanillaGen
 
 import parsley.errors
 import parsley.token.errors.LabelConfig
@@ -18,7 +17,7 @@ import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
 import parsley.internal.errors.RigidCaret
 import parsley.internal.machine.errors.ClassicFancyError
-import parsley.internal.machine.instructions.JitImpl.{Action, Param}
+import parsley.internal.machine.instructions.JitImpl.Action
 
 private [internal] final class Lift2(val f: (Any, Any) => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
@@ -514,7 +513,7 @@ private [internal] final class MapFilter[A, B](_pred: A => Option[B], var good: 
 }
 
 private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (errors.VanillaGen.UnexpectedItem, Option[String])]) extends Instr with SpecializedInstr {
-    val pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])] = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
+    val pred: PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])] = f.asInstanceOf[PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])]]
 
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
@@ -532,7 +531,7 @@ private [internal] final class FilterPartialVanilla[A](f: PartialFunction[A, (er
     }
 
     @JitImpl(consumeOperands = 1, constants = Array("pred"), beforeActions = Array(Action.Dup))
-    def apply(x: Any, pred: PartialFunction[Any, (VanillaGen.UnexpectedItem, Option[String])], ctx: Context): Boolean = {
+    def apply(x: Any, pred: PartialFunction[Any, (errors.VanillaGen.UnexpectedItem, Option[String])], ctx: Context): Boolean = {
         ctx.states = ctx.states.tail
         !pred.isDefinedAt(x)
     }

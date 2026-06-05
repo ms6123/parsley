@@ -14,7 +14,7 @@ import parsley.internal.collection.immutable.Trie
 import parsley.internal.errors.{ExpectDesc, ExpectItem, ExpectRaw}
 import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
-import parsley.internal.machine.errors.{EmptyError, ExpectedError}
+import parsley.internal.machine.errors.EmptyError
 import parsley.internal.machine.instructions.{FailMarker, HandlerInfo, Instr, JitImpl, SpecializedInstr, StackInfo}
 import parsley.internal.machine.instructions.JitImpl.IntKind
 

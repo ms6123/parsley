@@ -8,10 +8,10 @@ package parsley.internal.machine.jit
 import scala.annotation.tailrec
 import scala.collection.mutable
 
-import parsley.internal.machine.{Context, ParseRunner}
+import parsley.internal.machine.ParseRunner
 import parsley.internal.machine.instructions.*
 import parsley.internal.machine.instructions.JitImpl.Param
-import parsley.internal.machine.jit.codegen.{JitParseRunner, ParserFunction, ParserGenerator}
+import parsley.internal.machine.jit.codegen.{JitParseRunner, ParserFunction}
 import parsley.internal.machine.jit.utils.{CycleBreaker, Tarjan}
 
 object Optimizer {
@@ -94,20 +94,20 @@ object Optimizer {
     }
 
     private def findCyclicFunctions(functions: collection.Map[Int, Array[Instr]]): Set[Int] = {
-        val graph = functions.mapValues(calledIds).toMap
+        val graph = functions.map { case (id, instrs) => id -> calledIds(instrs) }
         Tarjan.findCyclicNodes(graph)
     }
 
     private def analyzeAll(funcById: mutable.Map[Int, Array[Instr]]): Map[Int, FunctionInfo] = {
         val callers = {
             val m = mutable.Map[Int, Set[Int]]().withDefaultValue(Set.empty)
-            for ((callerId, instrs) <- funcById; case Call(id, _) <- instrs.filter(_.isInstanceOf[Call])) {
+            for ((callerId, instrs) <- funcById; id <- instrs.filter(_.isInstanceOf[Call]).map(_.asInstanceOf[Call].label)) {
                 m(id) = m(id) + callerId
             }
             m.toMap.withDefaultValue(Set.empty)
         }
 
-        val state = mutable.Map.empty[Int, (Boolean, Boolean)] ++= funcById.keySet.view.map(_ -> (false, false))
+        val state = mutable.Map.empty[Int, (Boolean, Boolean)] ++= funcById.keySet.view.map((_, (false, false)))
         val inQueue = mutable.Set.empty[Int] ++= funcById.keySet
         val queue = mutable.Queue.empty[Int] ++= funcById.keySet
 

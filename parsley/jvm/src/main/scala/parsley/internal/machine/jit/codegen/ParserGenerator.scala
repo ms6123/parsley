@@ -5,10 +5,7 @@
  */
 package parsley.internal.machine.jit.codegen
 
-import java.lang.invoke.{MethodHandle, MethodHandles, MethodType}
-
 import parsley.internal.machine.jit.*
-import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
 import parsley.internal.machine.jit.codegen.ParserGenerator.{className, Constants}
 
 import org.objectweb.asm.{Opcodes, Type}
@@ -32,7 +29,7 @@ private[jit] class ParserGenerator(private val functions: Array[ParserFunction])
             if (function.isCyclic) {
                 new StateMachineFunctionGenerator(function, this, classVisitor).generate()
             } else {
-                new PlainFunctionGenerator(function, this, classVisitor).generate()
+                new PlainFunctionGenerator(function, classVisitor).generate()
             }
         }
 }

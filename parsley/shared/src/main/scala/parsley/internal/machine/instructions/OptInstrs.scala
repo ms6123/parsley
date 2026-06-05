@@ -14,8 +14,7 @@ import parsley.token.errors.LabelConfig
 import parsley.internal.errors.ExpectItem
 import parsley.internal.machine.{Context, InterpreterContext}
 import parsley.internal.machine.XAssert.*
-import parsley.internal.machine.errors.{EmptyHints, ExpectedError}
-import parsley.internal.machine.stacks.ErrorStack
+import parsley.internal.machine.errors.ExpectedError
 
 private [internal] final class Lift1(val f: Any => Any) extends Instr with SpecializedInstr {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {

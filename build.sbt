@@ -55,6 +55,7 @@ lazy val commonSettings = Seq(
   scalacOptions ++= {
     if (!isSnapshot.value && !(noReleaseFlagsScala3 && scalaBinaryVersion.value == "3")) releaseFlags else Seq.empty
   },
+  javacOptions += "-Xlint:-options",
 )
 
 lazy val parsley = crossProject(JSPlatform, JVMPlatform, NativePlatform)
@@ -72,6 +73,7 @@ lazy val parsley = crossProject(JSPlatform, JVMPlatform, NativePlatform)
     ),
 
     Compile / doc / scalacOptions ++= Seq("-groups", "-doc-root-content", s"${baseDirectory.value.getParentFile.getPath}/rootdoc.md"),
+    scalacOptions += "-Wconf:msg=Usage of named or default arguments transformed this annotation:s",
   )
   .jvmSettings(
     libraryDependencies += "org.ow2.asm" % "asm" % "9.6",

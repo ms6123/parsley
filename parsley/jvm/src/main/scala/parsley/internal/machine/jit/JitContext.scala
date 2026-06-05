@@ -8,7 +8,6 @@ package parsley.internal.machine.jit
 import java.lang.invoke.MethodHandle
 
 import parsley.XAssert.assert
-import parsley.errors.ErrorBuilder
 
 import parsley.internal.errors.{CaretWidth, ExpectItem, UnexpectDesc}
 import parsley.internal.machine.Context
@@ -19,11 +18,10 @@ import parsley.{Failure, Result, Success}
 
 private[jit] final class JitContext(private val startMethod: MethodHandle,
                                     input: String,
-                                    numRegs: Int,
-                                    sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
+                                    numRegs: Int) extends Context(input, numRegs) {
     val resultHolder: ContinuationResult = new ContinuationResult()
 
-    def run[Err: ErrorBuilder, A](): Result[Err, A] = {
+    def run[Err, A](): Result[Err, A] = {
         val result = startMethod.invokeExact(this)
         result match {
             case FailMarker =>

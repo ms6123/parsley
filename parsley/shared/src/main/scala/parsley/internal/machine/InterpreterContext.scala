@@ -16,10 +16,10 @@ import parsley.internal.machine.stacks.Stack.StackExt
 
 import parsley.{Failure, Result, Success}
 
-private[machine] class InterpreterContext(private[this] val startInstrs: Array[Instr],
+private[internal] class InterpreterContext(private[this] val startInstrs: Array[Instr],
                                           input: String,
                                           numRegs: Int,
-                                          sourceFile: Option[String]) extends Context(input, numRegs, sourceFile) {
+                                          sourceFile: Option[String]) extends Context(input, numRegs) {
     /** Current operational status of the machine */
     override private[machine] var good: Boolean = true
     private[machine] var running: Boolean = true
@@ -81,7 +81,7 @@ private[machine] class InterpreterContext(private[this] val startInstrs: Array[I
     }
 
     override private[machine] def addErrorToHintsAndPop(): Unit = {
-        this.addErrorToHints(errs.pop())
+        this.addErrorToHints(errs.pop[DefuncError]())
     }
 
     override private [machine] def addHints(expecteds: Set[ExpectItem], unexpectedWidth: Int): Unit = {

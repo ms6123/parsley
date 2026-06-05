@@ -5,12 +5,10 @@
  */
 package parsley.internal.machine.instructions
 
-import parsley.XAssert.*
-
 import org.typelevel.scalaccompat.annotation.unused
 import parsley.internal.machine.{Context, InterpreterContext, ParseRunner}
 import parsley.internal.machine.XAssert.*
-import parsley.internal.machine.errors.{EmptyError, EmptyHints}
+import parsley.internal.machine.errors.EmptyError
 import parsley.internal.machine.instructions.JitImpl.Param
 
 // Stack Manipulators

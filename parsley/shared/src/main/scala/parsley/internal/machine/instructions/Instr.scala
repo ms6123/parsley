@@ -84,7 +84,7 @@ private [internal] trait RefailInstr extends SpecializedInstr {
 
     def failStacksz(stacksz: Int): Int = stacksz
 
-    final override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+    final override def fallThroughPath(@unused stacksz: Int, @unused handlers: List[HandlerInfo]): Option[StackInfo] = None
 
     final override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(failStacksz(stacksz), handlers.tail))
 }

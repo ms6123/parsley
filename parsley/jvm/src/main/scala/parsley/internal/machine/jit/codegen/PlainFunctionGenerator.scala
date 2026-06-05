@@ -11,7 +11,7 @@ import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAM
 
 import org.objectweb.asm.Opcodes
 
-class PlainFunctionGenerator(function: ParserFunction, ctx: ParserGenerator, classVisitor: ClassGenContext#ClassGenVisitor)
+class PlainFunctionGenerator(function: ParserFunction, classVisitor: ClassGenContext#ClassGenVisitor)
     extends FunctionGenerator(function, classVisitor) {
 
     override protected val implName: String = IMPL_NAME

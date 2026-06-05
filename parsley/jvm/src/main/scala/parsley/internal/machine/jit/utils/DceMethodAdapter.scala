@@ -5,7 +5,6 @@
  */
 package parsley.internal.machine.jit.utils
 
-import scala.collection.JavaConverters.*
 import scala.collection.mutable
 
 import org.objectweb.asm.{MethodVisitor, Opcodes}
@@ -33,7 +32,7 @@ private[utils] class DceMethodAdapter(access: Int,
         val worklist = mutable.Stack.empty[AbstractInsnNode]
 
         val handlersFor = mutable.Map.empty[AbstractInsnNode, List[LabelNode]].withDefaultValue(Nil)
-        for (tcb <- tryCatchBlocks.asScala) {
+        tryCatchBlocks.forEach { tcb =>
             var curr = tcb.start.asInstanceOf[AbstractInsnNode]
             while (curr != null && curr != tcb.end) {
                 handlersFor(curr) = tcb.handler :: handlersFor(curr)
@@ -64,11 +63,11 @@ private[utils] class DceMethodAdapter(access: Int,
 
                 case ts: TableSwitchInsnNode =>
                     enqueue(ts.dflt)
-                    ts.labels.asScala.foreach(enqueue)
+                    ts.labels.forEach(enqueue)
 
                 case ls: LookupSwitchInsnNode =>
                     enqueue(ls.dflt)
-                    ls.labels.asScala.foreach(enqueue)
+                    ls.labels.forEach(enqueue)
 
                 case _ =>
                     opcode match {
@@ -92,6 +91,6 @@ private[utils] class DceMethodAdapter(access: Int,
             curr = next
         }
 
-        tryCatchBlocks.removeIf(it => it.start == it.end)
+        tryCatchBlocks.removeIf(it => it.start == it.end): Unit
     }
 }

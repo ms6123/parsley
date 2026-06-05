@@ -5,25 +5,16 @@
  */
 package parsley.internal.machine
 
-import scala.annotation.tailrec
-
 //import parsley.{Failure, Result, Success} // not sure why this fails scalacheck, but I guess we'll leave it until I can submit a bug report
-import parsley.Failure
-import parsley.Result
-import parsley.Success
 import parsley.XAssert.*
-import parsley.errors.ErrorBuilder
 
 import parsley.internal.errors.{CaretWidth, ExpectItem, LineBuilder, UnexpectDesc}
-import parsley.internal.machine.errors.{ClassicFancyError, DefuncError, DefuncHints, EmptyHints,
-                                        ErrorItemBuilder, ExpectedError, ExpectedErrorWithReason, UnexpectedError}
+import parsley.internal.machine.errors.ErrorItemBuilder
 
-import instructions.Instr
-import stacks.{ArrayStack, CallStack, ErrorStack, HandlerStack, Stack, StateStack}, Stack.StackExt
+import stacks.{Stack, StateStack}
 
 private [parsley] abstract class Context(private[machine] val input: String,
-                                        numRegs: Int,
-                                        private val sourceFile: Option[String]) {
+                                        numRegs: Int) {
     /** Current offset into the input */
     private [machine] var offset: Int = 0
     /** The length of the input, stored for whatever reason */

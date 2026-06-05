@@ -15,6 +15,7 @@ import parsley.internal.machine.instructions.JitImpl.Param
 import parsley.internal.machine.jit.*
 
 import org.objectweb.asm.{Label, Opcodes, Type}
+import org.typelevel.scalaccompat.annotation.unused
 
 private [codegen] abstract class FunctionGenerator(function: ParserFunction, classVisitor: ClassGenContext#ClassGenVisitor) {
     protected val implName: String
@@ -134,15 +135,16 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
-    protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+    protected def generateDynCall(@unused pos: Int, @unused instrInfo: InstrInfo, @unused f: (Any, Int, Boolean) => ParseRunner)
+                                 (implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit = {
         throw new UnsupportedOperationException(s"Dynamic calls are not supported by $this")
     }
 
-    protected def generateImplStart()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = ()
+    protected def generateImplStart()(implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit = ()
 
-    protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit
+    protected def generateSuccess()(implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit
 
-    protected def generateFailure()(implicit vis: ClassGenContext#MethodGenVisitor): Unit
+    protected def generateFailure()(implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit
 
     protected def loadContext()(implicit vis: ClassGenContext#MethodGenVisitor): Unit =
         vis.visitVarInsn(Opcodes.ALOAD, contextIndex)
@@ -193,8 +195,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                 case JitImpl.IntKind.CodePoint =>
                     classOf[java.lang.Integer].getMethod("valueOf", classOf[Int])
             }
-            val Some(Successor(badPc, badAfterActions)) = instrInfo.badPath
-            val Seq(IndicatedSuccessor(_, goodSucc)) = instrInfo.goodPaths(pos)
+            val Some(Successor(badPc, badAfterActions)) = instrInfo.badPath: @unchecked
+            val Seq(IndicatedSuccessor(_, goodSucc)) = instrInfo.goodPaths(pos): @unchecked
 
             val goodLabel = new Label()
 
@@ -283,6 +285,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
                     instrInfo.jumpPaths.map(_.successor).toSet
                 }
+            case t =>
+                throw new UnsupportedOperationException(s"Illegal return type $t")
         }
 
         require(possiblePaths.size <= 1)
@@ -391,7 +395,7 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
                 case charMap: JumpTableCharMapPred =>
                     val jumpPaths = charMap.map.view.map { case (char, (indicator, _)) =>
                         val dest = destinationsByIndicator(indicator)
-                        JumpPath(char, labelForPos(dest.pc), combineActions(dest.afterActions))
+                        JumpPath(char.toInt, labelForPos(dest.pc), combineActions(dest.afterActions))
                     }.toSeq
 
                     CodeGenUtils.switchDispatch(jumpPaths, fallThroughLabel, None)

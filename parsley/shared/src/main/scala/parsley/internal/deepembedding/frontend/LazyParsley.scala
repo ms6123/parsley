@@ -5,7 +5,6 @@
  */
 package parsley.internal.deepembedding.frontend
 
-import scala.annotation.nowarn
 import scala.collection.mutable
 
 import parsley.XAssert.*
@@ -16,7 +15,7 @@ import ContOps.{perform, result, ContAdapter}
 import parsley.internal.deepembedding.backend
 import backend.StrictParsley
 import parsley.internal.diagnostics.NullParserException
-import parsley.internal.machine.{instructions, InterpreterRunner, ParseRunner}
+import parsley.internal.machine.{InterpreterRunner, ParseRunner}
 import parsley.internal.machine.instructions.Instr
 import parsley.internal.machine.jit.Optimizer
 

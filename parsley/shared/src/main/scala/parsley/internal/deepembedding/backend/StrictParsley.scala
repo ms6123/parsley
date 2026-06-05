@@ -15,7 +15,7 @@ import parsley.state.Ref
 import parsley.internal.collection.mutable.ResizableArray
 import parsley.internal.deepembedding.ContOps
 import ContOps.{perform, ContAdapter}
-import parsley.internal.machine.{instructions, Context, InterpreterRunner, ParseRunner}
+import parsley.internal.machine.{instructions, InterpreterRunner, ParseRunner}
 import instructions.{Instr, Label}
 import StrictParsley.*
 import parsley.internal.deepembedding.frontend.LetMap

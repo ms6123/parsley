@@ -14,7 +14,7 @@ import parsley.internal.machine.jit.{Continuation, JitContext}
 
 import parsley.{Failure, Result, Success}
 
-class JitParseRunner(functions: Array[ParserFunction], numRegs: Int, fallback: () => ParseRunner) extends ParseRunner {
+private [jit] class JitParseRunner(functions: Array[ParserFunction], numRegs: Int, fallback: () => ParseRunner) extends ParseRunner {
     private val lookup = MethodHandles.lookup()
     private val implClass = new ParserGenerator(functions).generate()
     private val parseMethod = lookup.findStatic(
@@ -29,7 +29,7 @@ class JitParseRunner(functions: Array[ParserFunction], numRegs: Int, fallback: (
     )
 
     override def run[Err: ErrorBuilder, A](input: String, sourceFile: Option[String]): Result[Err, A] =
-        new JitContext(parseMethod, input, numRegs, sourceFile).run() match {
+        new JitContext(parseMethod, input, numRegs).run() match {
             case success: Success[?] => success
             case Failure(_) =>
                 System.err.println("Falling back to interpreter")
@@ -37,17 +37,14 @@ class JitParseRunner(functions: Array[ParserFunction], numRegs: Int, fallback: (
         }
 
     override def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Continuation =
-        ctx match {
-            case ctx: JitContext =>
-                if (startMethod ne null) {
-                    startMethod.invokeExact(continuation.asInstanceOf[Continuation], ctx)
-                } else {
-                    // Inner parser is not a state machine
-                    new Continuation(continuation.asInstanceOf[Continuation]) {
-                        override def step(ctx: JitContext): Continuation = {
-                            returnWith(parseMethod.invokeExact(ctx))
-                        }
-                    }
+        if (startMethod ne null) {
+            startMethod.invokeExact(continuation.asInstanceOf[Continuation], ctx.asInstanceOf[JitContext])
+        } else {
+            // Inner parser is not a state machine
+            new Continuation(continuation.asInstanceOf[Continuation]) {
+                override def step(ctx: JitContext): Continuation = {
+                    returnWith(parseMethod.invokeExact(ctx))
                 }
+            }
         }
 }
