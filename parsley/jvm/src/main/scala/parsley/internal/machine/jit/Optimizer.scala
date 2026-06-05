@@ -17,6 +17,10 @@ object Optimizer {
 
     def optimize(instrs: Array[Instr], numRegs: Int, fallback: () => ParseRunner): ParseRunner = {
         require(isEnabled, "JIT is disabled")
+        if (instrs.exists(_.isInstanceOf[DebugInstr])) {
+            // We do not support these
+            return fallback()
+        }
 
         System.err.println(s"JITing ${instrs.length} instructions")
 
