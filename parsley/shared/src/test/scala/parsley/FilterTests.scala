@@ -86,47 +86,49 @@ class FilterTests extends ParsleyTest {
 
     // Issue #271
     "partial functions within filters" should "not be evaluated twice" in {
-        def tripwire[B](r: =>B): () => B = {
-            var called = false
+        def tripwire[B](r: =>B, willFail: Boolean): () => B = {
+            // Failure will require a second pass
+            val expectedCalls = if (willFail) 2 else 1
+            var calls = 0
             () => {
-                require(!called, "tripwire tripped!")
-                called = true
+                require(calls < expectedCalls, "tripwire tripped!")
+                calls += 1
                 r
             }
         }
 
         def p1(fail: Boolean) = {
-            val t = tripwire(fail)
+            val t = tripwire(fail, fail)
             item.filterOut {
                 case _ if t() => "hello"
             }
         }
         def p2(fail: Boolean) = {
-            val t = tripwire(fail)
+            val t = tripwire(fail, fail)
             item.guardAgainst {
                 case _ if t() => Seq("hello")
             }
         }
         def p3(fail: Boolean) = {
-            val t = tripwire(fail)
+            val t = tripwire(fail, fail)
             item.unexpectedWhen {
                 case _ if t() => "hello"
             }
         }
         def p4(fail: Boolean) = {
-            val t = tripwire(fail)
+            val t = tripwire(fail, fail)
             item.unexpectedWithReasonWhen {
                 case _ if t() => ("hello", "hi")
             }
         }
         def p5(fail: Boolean) = {
-            val t = tripwire(!fail)
+            val t = tripwire(!fail, fail)
             item.collectMsg(_ => Seq("hello")) {
                 case _ if t() => 4
             }
         }
         def p6(fail: Boolean) = {
-            val t = tripwire(!fail)
+            val t = tripwire(!fail, fail)
             item.mapFilterMsg { x =>
                 if (t()) Right(x)
                 else Left(Seq("hello"))
@@ -134,22 +136,22 @@ class FilterTests extends ParsleyTest {
         }
 
         info("filterOut")
-//        p1(true).parse("a") shouldBe a [Failure[?]]
+        p1(true).parse("a") shouldBe a [Failure[?]]
         p1(false).parse("a") shouldBe a [Success[?]]
         info("unexpectedWhen")
-//        p3(true).parse("a") shouldBe a [Failure[?]]
+        p3(true).parse("a") shouldBe a [Failure[?]]
         p3(false).parse("a") shouldBe a [Success[?]]
         info("unexpectedWithReasonWhen")
-//        p4(true).parse("a") shouldBe a [Failure[?]]
+        p4(true).parse("a") shouldBe a [Failure[?]]
         p4(false).parse("a") shouldBe a [Success[?]]
         info("collectMsg")
-//        p5(true).parse("a") shouldBe a [Failure[?]]
+        p5(true).parse("a") shouldBe a [Failure[?]]
         p5(false).parse("a") shouldBe a [Success[?]]
         info("guardAgainst")
-//        p2(true).parse("a") shouldBe a [Failure[?]]
+        p2(true).parse("a") shouldBe a [Failure[?]]
         p2(false).parse("a") shouldBe a [Success[?]]
         info("mapFilterMsg")
-//        p6(true).parse("a") shouldBe a [Failure[?]]
+        p6(true).parse("a") shouldBe a [Failure[?]]
         p6(false).parse("a") shouldBe a [Success[?]]
     }
 }
