@@ -3,6 +3,7 @@ package parsley.internal.machine.jit.codegen
 import java.io.File
 import java.lang.reflect.{Field, Method, Modifier}
 import java.nio.file.{Files, Paths}
+import java.util.Collections
 
 import scala.collection.mutable
 import scala.reflect.ClassTag
@@ -31,7 +32,7 @@ class ClassGenContext {
             Files.write(file, bytes)
         }
         val clazz = classLoader.defineClass(name.replace('/', '.'), bytes)
-        objectPools(clazz) = visitor.objectPool.toArray
+        objectPools.put(clazz, visitor.objectPool.toArray)
         clazz
     }
 
@@ -143,10 +144,10 @@ object ClassGenContext {
         val SHOULD_DUMP_CLASSES: Boolean = System.getProperty("parsley.jit.dump", "false").toBoolean
     }
 
-    private val objectPools = mutable.WeakHashMap.empty[Class[?], Array[AnyRef]]
+    private val objectPools = Collections.synchronizedMap(new java.util.WeakHashMap[Class[?], Array[AnyRef]])
 
     def getObject(index: Int, context: Class[?]): AnyRef = {
-        objectPools(context)(index)
+        objectPools.get(context)(index)
     }
 }
 
