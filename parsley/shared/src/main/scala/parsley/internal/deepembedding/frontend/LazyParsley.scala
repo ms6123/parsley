@@ -19,6 +19,8 @@ import parsley.internal.diagnostics.NullParserException
 import parsley.internal.machine.{instructions, ParseRunner}
 import parsley.internal.machine.jit.Optimizer
 
+import parsley.internal.UseJit
+
 /** This is the root type of the parsley "frontend": it represents a combinator tree
   * where the join-points in the tree (recursive or otherwise) have not been identified
   * or factored. As such, it is a potentially cyclic graph (though finite), and must be handled with
@@ -37,9 +39,9 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     private [parsley] final def overflows(): Unit = cps = true
     // $COVERAGE-ON$
 
-    private [this] val pipelineCache = mutable.Map.empty[Boolean, (ParseRunner, Int)]
+    private [this] val pipelineCache = mutable.Map.empty[Boolean, ParseRunner]
     
-    final private [parsley] def force(useJit: Boolean): (ParseRunner, Int) = pipelineCache.getOrElseUpdate(useJit, computeRunner(useJit))
+    final private [parsley] def force(useJit: Boolean = Optimizer.isEnabled): ParseRunner = pipelineCache.getOrElseUpdate(useJit, computeRunner(useJit))
 
     /** This parser is the result of a `flatMap` operation, and as such may need to expand
       * the refs set. If so, it needs to know what the minimum free slot is according to
@@ -90,15 +92,16 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires in a (possibly) stack-safe way.
       */
-    final private def computeRunner(useJit: Boolean): (ParseRunner, Int) = {
-        if (cps) computeRunner(Cont.ops, useJit) else computeRunner(Id.ops, useJit)
+    final private def computeRunner(useJit: Boolean): ParseRunner = {
+        val useJitStatus = if (useJit) UseJit.Yes(() => force(false)) else UseJit.No
+        if (cps) computeRunner(Cont.ops, useJitStatus) else computeRunner(Id.ops, useJitStatus)
     }
     /** Computes the instructions associated with this parser as well as the number of
       * registers it requires within the context of a specific (unknown) monad.
       *
       * @param ops the instance for the monad to evaluate with
       */
-    final private def computeRunner[M[_, +_]](ops: ContOps[M], useJit: Boolean): (ParseRunner, Int) = pipeline(useJit)(ops)
+    final private def computeRunner[M[_, +_]](ops: ContOps[M], useJit: UseJit): ParseRunner = pipeline(useJit)(ops)
 
     /** Performs the full end-to-end pipeline through both the frontend and the backend.
       *
@@ -110,9 +113,13 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
       * @return the instructions associates with this parser as well as the number of
       *         registers it requires
       */
-    final private def pipeline[M[_, +_]: ContOps](useJit: Boolean): (ParseRunner, Int) = {
-        implicit val letFinderState: LetFinderState = new LetFinderState
-        (perform[M, ParseRunner] {
+    final private def pipeline[M[_, +_]: ContOps](useJit: UseJit): ParseRunner = {
+        val allowInlining = useJit match {
+            case UseJit.Yes(_) => Optimizer.allowInlining
+            case UseJit.No => true
+        }
+        implicit val letFinderState: LetFinderState = new LetFinderState(allowInlining)
+        perform[M, ParseRunner] {
             findLets(Set.empty) >> {
                 val usedRefs: Set[Ref[?]] = letFinderState.usedRefs
                 implicit val letMap: LetMap = LetMap(letFinderState.lets, letFinderState.recs)
@@ -121,7 +128,7 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
                     sp.generateInstructions(minRef, usedRefs, letMap.bodies, useJit)
                 }
             }
-        }, letFinderState.numRefs)
+        }
     }
 
     // Pass 1
@@ -194,9 +201,9 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     }
 
     /** Pretty-prints a combinator tree, for internal debugging purposes only. */
-    final private [internal] def prettyAST: String = {
+    final private [internal] def prettyAST(allowInlining: Boolean): String = {
         implicit val ops = Id.ops
-        implicit val letFinderState: LetFinderState = new LetFinderState
+        implicit val letFinderState: LetFinderState = new LetFinderState(allowInlining)
         findLets(Set.empty)
         implicit val letMap: LetMap = LetMap(letFinderState.lets, letFinderState.recs)
         implicit val state: backend.CodeGenState = new backend.CodeGenState(0)
@@ -215,7 +222,7 @@ private [deepembedding] trait UsesRef {
 }
 
 /** This is a collection of builders that track the shared parsers and used registers during Pass 1 */
-private [deepembedding] class LetFinderState {
+private [deepembedding] class LetFinderState(allowInlining: Boolean) {
     private val _recs = mutable.Set.empty[LazyParsley[?]]
     private val _preds = mutable.Map.empty[LazyParsley[?], Int]
     private val _usedRefs = mutable.Set.empty[Ref[?]]
@@ -242,7 +249,7 @@ private [deepembedding] class LetFinderState {
 
     /** Returns all the parsers which are referenced two or more times across the tree. */
     private [frontend] def lets: Iterable[LazyParsley[?]] = _preds.toSeq.view.collect {
-        case (p, refs) if refs >= 2 || !Optimizer.allowInlining => p
+        case (p, refs) if refs >= 2 || !allowInlining => p
     }
     /** Returns all the recursive parsers in the tree */
     private [frontend] lazy val recs: Set[LazyParsley[?]] = _recs.toSet

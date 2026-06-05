@@ -161,8 +161,8 @@ private [parsley] abstract class Context(private[machine] val input: String,
 }
 
 private [parsley] object Context {
-    def interpreterRunner(instrs: Array[Instr]): ParseRunner = new ParseRunner {
-        override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
+    def interpreterRunner(instrs: Array[Instr], numRegs: Int): ParseRunner = new ParseRunner {
+        override def run[Err: ErrorBuilder, A](input: String, sourceFile: Option[String]): Result[Err, A] =
             new InterpreterContext(instrs, input, numRegs, sourceFile).run()
 
         override def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Null =

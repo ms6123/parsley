@@ -130,8 +130,8 @@ final class Parsley[+A] private [parsley] (private [parsley] val internal: front
       * @group run
       */
     def parse[Err: ErrorBuilder](input: String): Result[Err, A] = {
-        val (runner, numRefs) = internal.force(true)
-        try runner.run(input, numRefs, None)
+        val runner = internal.force()
+        try runner.run(input, None)
         catch {
             // $COVERAGE-OFF$
             case UserException(err) => throw err // scalastyle:ignore throw
@@ -912,7 +912,7 @@ final class Parsley[+A] private [parsley] (private [parsley] val internal: front
       *
       * @group special
       */
-    def force(): Unit = internal.force(true)
+    def force(): Unit = internal.force()
 
     /** Provides an indicator that this parser will likely stack-overflow and so a stack-safe
       * construction should be used when "compiling" this parser.

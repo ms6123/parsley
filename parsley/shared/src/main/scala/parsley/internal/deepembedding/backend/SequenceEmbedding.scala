@@ -98,7 +98,7 @@ private [deepembedding] final class >>=[A, B](val p: StrictParsley[A], private [
                 val q = f(x)
                 q.setMinReferenceAllocation(refsSz)
                 if (implicitly[ContOps[M]].isStackSafe) q.overflows()
-                q.force(useJit)._1
+                q.force(useJit)
             }
             // NOTE: this cannot be removed, because `q`'s instructions are cached: there is no way to tell it
             // to not produce results that doesn't stop it working later. Something like `p.flatten ~> p.flatten` will crash.

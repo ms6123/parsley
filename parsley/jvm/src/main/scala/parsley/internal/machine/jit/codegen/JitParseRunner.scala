@@ -5,12 +5,11 @@ import java.lang.invoke.{MethodHandles, MethodType}
 import parsley.errors.ErrorBuilder
 
 import parsley.internal.machine.{Context, ParseRunner}
-import parsley.internal.machine.instructions.Instr
 import parsley.internal.machine.jit.{Continuation, JitContext}
 
 import parsley.{Failure, Result, Success}
 
-class JitParseRunner(functions: Array[ParserFunction], originalInstrs: Array[Instr]) extends ParseRunner {
+class JitParseRunner(functions: Array[ParserFunction], numRegs: Int, fallback: () => ParseRunner) extends ParseRunner {
     private val lookup = MethodHandles.lookup()
     private val implClass = new ParserGenerator(functions).generate()
     private val parseMethod = lookup.findStatic(
@@ -24,13 +23,12 @@ class JitParseRunner(functions: Array[ParserFunction], originalInstrs: Array[Ins
         MethodType.fromMethodDescriptorString(StateMachineFunctionGenerator.Constants.START_DESC, getClass.getClassLoader)
     )
 
-    override def run[Err: ErrorBuilder, A](input: String, numRegs: Int, sourceFile: Option[String]): Result[Err, A] =
+    override def run[Err: ErrorBuilder, A](input: String, sourceFile: Option[String]): Result[Err, A] =
         new JitContext(parseMethod, input, numRegs, sourceFile).run() match {
             case success: Success[?] => success
             case Failure(_) =>
                 System.err.println("Falling back to interpreter")
-                Context.interpreterRunner(originalInstrs)
-                    .run(input, numRegs, sourceFile)
+                fallback().run(input, sourceFile)
         }
 
     override def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Continuation =

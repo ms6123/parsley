@@ -10,20 +10,15 @@ import parsley.internal.machine.jit.codegen.{JitParseRunner, ParserFunction, Par
 import parsley.internal.machine.jit.utils.{CycleBreaker, Tarjan}
 
 object Optimizer {
-    private val IS_ENABLED: Boolean = System.getProperty("parsley.jit.enabled", "true").toBoolean
+    val isEnabled: Boolean = System.getProperty("parsley.jit.enabled", "true").toBoolean
 
-    val useTco: Boolean = !IS_ENABLED
-    val allowInlining: Boolean = !IS_ENABLED
+    val useTco: Boolean = false
+    val allowInlining: Boolean = false
 
-    def optimize(originalInstrs: Array[Instr]): ParseRunner = {
-        if (!IS_ENABLED) {
-            System.err.println(s"Interpreting ${originalInstrs.length} instructions")
-            return Context.interpreterRunner(originalInstrs)
-        }
+    def optimize(instrs: Array[Instr], numRegs: Int, fallback: () => ParseRunner): ParseRunner = {
+        require(isEnabled, "JIT is disabled")
 
-        System.err.println(s"JITing ${originalInstrs.length} instructions")
-
-        val instrs = originalInstrs.map(_.copy)
+        System.err.println(s"JITing ${instrs.length} instructions")
 
         val functionRanges = mutable.ArrayBuffer[Range]()
         var chunkStart = 0
@@ -76,7 +71,7 @@ object Optimizer {
 
         breakPassthroughCycles(parserFunctions)
 
-        new JitParseRunner(parserFunctions, originalInstrs)
+        new JitParseRunner(parserFunctions, numRegs, fallback)
     }
 
     private def tailrecOptimization(funcRange: Range, instrs: mutable.ArrayBuffer[Instr]): Unit = {

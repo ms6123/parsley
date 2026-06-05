@@ -12,8 +12,6 @@ import scala.util.Try
 
 import parsley.errors.ErrorBuilder
 
-import parsley.internal.machine.Context
-
 trait PlatformSpecific {
     /** This class exposes a method of running parsers from a file.
       *
@@ -48,8 +46,7 @@ trait PlatformSpecific {
             } yield {
                 src.close()
                 val internal = p.internal
-                val (runner, numRefs) = internal.force(true)
-                runner.run(input, numRefs, Some(file.getName))
+                internal.force().run(input, Some(file.getName))
             }
         }
     }

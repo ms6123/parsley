@@ -1,11 +1,11 @@
 package parsley.internal.machine.jit
 
-import parsley.internal.machine.instructions.Instr
-import parsley.internal.machine.{Context, ParseRunner}
+import parsley.internal.machine.ParseRunner
 
 object Optimizer {
+  val isEnabled = false
   val useTco = true
   val allowInlining = true
   
-  def optimize(instrs: Array[Instr]): ParseRunner = Context.interpreterRunner(instrs)
+  def optimize(params: Any*): ParseRunner = ???
 }

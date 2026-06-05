@@ -22,6 +22,7 @@ import parsley.internal.deepembedding.frontend.LetMap
 import parsley.internal.machine.jit.Optimizer
 
 import org.typelevel.scalaccompat.annotation.unused
+import parsley.internal.UseJit
 
 /** This is the root type of the parsley "backend": it represents a combinator tree
   * where the join-points in the tree (recursive or otherwise) have been factored into
@@ -49,7 +50,7 @@ private [deepembedding] trait StrictParsley[+A] {
       * @param state the code generator state
       * @return the final array of instructions for this parser
       */
-    final private [deepembedding] def generateInstructions[M[_, +_]: ContOps](minRef: Int, usedRefs: Set[Ref[?]], bodyMap: Map[Let[?], StrictParsley[?]], useJit: Boolean)
+    final private [deepembedding] def generateInstructions[M[_, +_]: ContOps](minRef: Int, usedRefs: Set[Ref[?]], bodyMap: Map[Let[?], StrictParsley[?]], useJit: UseJit)
                                                                             (implicit state: CodeGenState): ParseRunner = {
         implicit val instrs: InstrBuffer = newInstrBuffer
         perform {
@@ -59,7 +60,7 @@ private [deepembedding] trait StrictParsley[+A] {
                 instrs += (if (minRef >= 0) instructions.Return else instructions.Halt)
                 val letRets = finaliseLets(bodyMap)
                 generateHandlers(state.handlers)
-                finaliseInstrs(instrs, state.nlabels, letRets, useJit)
+                finaliseInstrs(instrs, state.nlabels, letRets, useJit, usedRefs.size)
             }
         }
     }
@@ -191,7 +192,7 @@ private [deepembedding] object StrictParsley {
       * @param retLocs the labels that point to return instructions within the instruction buffer (for TCO)
       * @return the final array of instructions
       */
-    private def finaliseInstrs(instrs: InstrBuffer, numLabels: Int, retLocs: List[RetLoc], useJit: Boolean): ParseRunner = {
+    private def finaliseInstrs(instrs: InstrBuffer, numLabels: Int, retLocs: List[RetLoc], useJit: UseJit, numRefs: Int): ParseRunner = {
         @tailrec def findLabels(instrs: Array[Instr], labels: Array[Int], n: Int, i: Int, off: Int): Int = if (i + off < n) instrs(i + off) match {
             case label: Label =>
                 instrs(i + off) = null
@@ -213,13 +214,15 @@ private [deepembedding] object StrictParsley {
         val size = findLabels(instrsOversize, labelMapping, instrs.length, 0, 0)
         val instrs_ = new Array[Instr](size)
         applyLabels(instrsOversize, labelMapping, instrs_, instrs_.length, 0, 0)
-        if (!useJit || Optimizer.useTco) {
-            tco(instrs_, labelMapping, retLocs)
-        }
-        if (useJit) {
-            Optimizer.optimize(instrs_)
-        } else {
-            Context.interpreterRunner(instrs_)
+        useJit match {
+            case UseJit.Yes(fallback) =>
+                if (Optimizer.useTco) {
+                    tco(instrs_, labelMapping, retLocs)
+                }
+                Optimizer.optimize(instrs_, numRefs, fallback)
+            case UseJit.No =>
+                tco(instrs_, labelMapping, retLocs)
+                Context.interpreterRunner(instrs_, numRefs)
         }
     }
 
