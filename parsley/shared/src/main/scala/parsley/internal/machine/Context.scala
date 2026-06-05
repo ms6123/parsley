@@ -159,18 +159,3 @@ private [parsley] abstract class Context(private[machine] val input: String,
         def iterableFrom(offset: Int): IndexedSeq[Char] = Context.this.input.substring(offset)
     }
 }
-
-private [parsley] object Context {
-    def interpreterRunner(instrs: Array[Instr], numRegs: Int): ParseRunner = new ParseRunner {
-        override def run[Err: ErrorBuilder, A](input: String, sourceFile: Option[String]): Result[Err, A] =
-            new InterpreterContext(instrs, input, numRegs, sourceFile).run()
-
-        override def dynCall(ctx: Context, pc: Int, continuation: AnyRef): Null =
-            ctx match {
-                case ctx: InterpreterContext =>
-                    ctx.call(0)
-                    ctx.instrs = instrs
-                    null
-            }
-    }
-}

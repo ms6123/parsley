@@ -16,7 +16,8 @@ import ContOps.{perform, result, ContAdapter}
 import parsley.internal.deepembedding.backend
 import backend.StrictParsley
 import parsley.internal.diagnostics.NullParserException
-import parsley.internal.machine.{instructions, ParseRunner}
+import parsley.internal.machine.{instructions, InterpreterRunner, ParseRunner}
+import parsley.internal.machine.instructions.Instr
 import parsley.internal.machine.jit.Optimizer
 
 import parsley.internal.UseJit
@@ -42,6 +43,8 @@ private [parsley] abstract class LazyParsley[+A] private [deepembedding] {
     private [this] val pipelineCache = mutable.Map.empty[Boolean, ParseRunner]
     
     final private [parsley] def force(useJit: Boolean = Optimizer.isEnabled): ParseRunner = pipelineCache.getOrElseUpdate(useJit, computeRunner(useJit))
+
+    final private [parsley] def instrs: Array[Instr] = force(false).asInstanceOf[InterpreterRunner].instrs
 
     /** This parser is the result of a `flatMap` operation, and as such may need to expand
       * the refs set. If so, it needs to know what the minimum free slot is according to

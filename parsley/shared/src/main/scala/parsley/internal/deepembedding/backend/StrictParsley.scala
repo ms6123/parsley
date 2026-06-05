@@ -15,7 +15,7 @@ import parsley.state.Ref
 import parsley.internal.collection.mutable.ResizableArray
 import parsley.internal.deepembedding.ContOps
 import ContOps.{perform, ContAdapter}
-import parsley.internal.machine.{instructions, Context, ParseRunner}
+import parsley.internal.machine.{instructions, Context, InterpreterRunner, ParseRunner}
 import instructions.{Instr, Label}
 import StrictParsley.*
 import parsley.internal.deepembedding.frontend.LetMap
@@ -222,7 +222,7 @@ private [deepembedding] object StrictParsley {
                 Optimizer.optimize(instrs_, numRefs, fallback)
             case UseJit.No =>
                 tco(instrs_, labelMapping, retLocs)
-                Context.interpreterRunner(instrs_, numRefs)
+                new InterpreterRunner(instrs_, numRefs)
         }
     }
 
