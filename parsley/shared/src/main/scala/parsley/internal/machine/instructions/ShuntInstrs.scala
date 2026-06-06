@@ -82,7 +82,6 @@ private [internal] final class PostfixOp(f: Any => Any, val prec: Int) extends O
                 case _ =>
             }
             ctx.restoreState()
-            shunt.produceResult(state)
             shunt.endLabel
         } else {
             reduceWhilePrecGreaterOrEqual(state, shunt)
@@ -244,7 +243,7 @@ private [internal] final class ShuntJump(var prefixAtomLabel: Int, var postfixIn
     override def toString: String = s"Shunt(Prefix/Atom: $prefixAtomLabel, Postfix/Infix: $postfixInfixLabel)"
 }
 
-private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) extends ShuntInstr(wraps) {
+private [internal] final class ShuntHandler(private var endLabel: Int, wraps: Array[Array[Any => Any]]) extends ShuntInstr(wraps) {
     override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureHandlerInstruction(ctx)
         val handlerCheck = ctx.handlerCheck
@@ -258,7 +257,7 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
             ctx.good = true
             ctx.addErrorToHintsAndPop()
             ctx.exchange(produceResult(ctx.stack.peek[ShuntingYardState]))
-            pc + 1
+            endLabel
         }
     }
 
@@ -275,11 +274,41 @@ private [internal] final class ShuntHandler(wraps: Array[Array[Any => Any]]) ext
         }
     }
 
-    override def copy: Instr = new ShuntHandler(wraps)
+    override def relabel(labels: Int => Int): this.type = {
+        endLabel = labels(endLabel)
+        this
+    }
 
-    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
+    override def copy: Instr = new ShuntHandler(endLabel, wraps)
+
+    override def labels: Seq[Int] = Seq(endLabel)
+
+    override def fallThroughPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
 
     override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = Some(StackInfo(stacksz, handlers.tail))
 
-    override def toString: String = s"ShuntHandler"
+    override def jumpPaths(stacksz: Int, handlers: List[HandlerInfo]): Seq[(Int, StackInfo)] = Seq(
+        endLabel -> StackInfo(stacksz, handlers.tail)
+    )
+
+    override def toString: String = "ShuntHandler"
+}
+
+private [internal] final class ShuntProduceResult(wraps: Array[Array[Any => Any]]) extends ShuntInstr(wraps) {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
+        ensureRegularInstruction(ctx)
+        ctx.exchange(produceResult(ctx.stack.peek[ShuntingYardState]))
+        pc + 1
+    }
+
+    @JitImpl(consumeOperands = 1)
+    def apply(state: Any): Any = {
+        produceResult(state.asInstanceOf[ShuntingYardState])
+    }
+
+    override def copy: Instr = new ShuntProduceResult(wraps)
+
+    override def failPath(stacksz: Int, handlers: List[HandlerInfo]): Option[StackInfo] = None
+
+    override def toString: String = "ShuntProduceResult"
 }
