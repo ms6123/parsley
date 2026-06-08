@@ -288,6 +288,8 @@ private [deepembedding] class CodeGenState(val numRefs: Int)(implicit letMap: Le
 
     def getBody[A](sub: Let[A]): StrictParsley[A] = letMap.findBody(sub).get.asInstanceOf[StrictParsley[A]]
 
+    def findBody[A](sub: Let[A]): Option[StrictParsley[A]] = letMap.findBody(sub).asInstanceOf[Option[StrictParsley[A]]]
+
     /** Returns the next shared-parser that has been refered during code generation */
     def nextLet(): (Let[?], Boolean, Int) = queue.remove(0)
     /** Are there any more shared-parsers left on the processing queue? */
@@ -394,5 +396,25 @@ private [deepembedding] class CodeGenState(val numRefs: Int)(implicit letMap: Le
 
             override def next(): (Instr, Int) = cur.next()
         }
+    }
+}
+
+private [deepembedding] object WalkLets {
+    def unapply[A](p: StrictParsley[A])(implicit state: CodeGenState): Option[StrictParsley[A]] = {
+        @tailrec
+        def go(p: StrictParsley[A]): Option[StrictParsley[A]] =
+            p match {
+                case sub: Let[?] =>
+                    val body = state.findBody(sub)
+                    if (body.isDefined) {
+                        go(body.get.asInstanceOf[StrictParsley[A]])
+                    } else {
+                        // Recursion point
+                        None
+                    }
+                case _ => Some(p)
+            }
+
+        go(p)
     }
 }

@@ -184,7 +184,7 @@ private [backend] object Choice {
                                                    (implicit instrs: InstrBuffer, state: CodeGenState): M[R, Unit] = {
         val merge = state.getLabel(instructions.MergeErrorsAndFail)
         p match {
-            case Atomic(u) => scopedState(u, producesResults) {
+            case WalkLets(Atomic(u)) => scopedState(u, producesResults) {
                 instrs += new instructions.RestoreAndPushHandler(merge)
                 rest |> {
                     instrs += instructions.ErrorToHints
