@@ -12,6 +12,7 @@ import parsley.token.{descriptions => desc}
 import parsley.character.digit
 import parsley.syntax.character.{charLift, stringLift}
 import parsley.position.*
+import parsley.quick.stringOfSome
 import parsley.templates.*
 
 class ExpressionParserTests extends ParsleyTest {
@@ -290,6 +291,14 @@ class ExpressionParserTests extends ParsleyTest {
             Ops(InfixL)(Add from '+')
         )
         expr.parse("--7") shouldBe Success(Neg(Neg(Num(7))))
+    }
+    they should "handle unexpected postfix operators correctly" in {
+        val p = precedence[String](stringOfSome(_.isLetter))(
+            Ops(Postfix)('$' #> (x => x + "$")),
+            Ops(Postfix)('!' #> (x => x + "!")),
+        )
+
+        p.parse("hello!$") shouldBe Success("hello!")
     }
 
     "mixed expressions" should "also be parsable" in {
