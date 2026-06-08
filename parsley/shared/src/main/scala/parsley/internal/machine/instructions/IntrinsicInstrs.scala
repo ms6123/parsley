@@ -95,13 +95,13 @@ private [internal] class CharTok private (val c: Char, errorItem: Iterable[Expec
     // $COVERAGE-ON$
 }
 
-private [internal] class SupplementaryCharTok private (codepoint: Int, errorItem: Iterable[ExpectItem]) extends Instr {
+private [internal] class SupplementaryCharTok private (codepoint: Int, errorItem: Iterable[ExpectItem]) extends Instr with SpecializedInstr {
     def this(codepoint: Int, expected: LabelConfig) = this(codepoint, expected.asExpectItems(Character.toChars(codepoint).mkString))
 
     assert(Character.isSupplementaryCodePoint(codepoint), "SupplementaryCharTok should only be used for supplementary code points")
     val h = Character.highSurrogate(codepoint)
     val l = Character.lowSurrogate(codepoint)
-    override def apply(ctx: Context, pc: Int): Int = {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         if (ctx.moreInput(2) && ctx.peekChar(0) == h && ctx.peekChar(1) == l) {
             ctx.fastConsumeSupplementaryChar()
@@ -368,8 +368,8 @@ private [internal] object Eof extends Instr with SpecializedInstr {
     // $COVERAGE-ON$
 }
 
-private [internal] final class Modify(reg: Int, val f: Any => Any) extends Instr {
-    override def apply(ctx: Context, pc: Int): Int = {
+private [internal] final class Modify(reg: Int, val f: Any => Any) extends Instr with SpecializedInstr {
+    override def apply(ctx: InterpreterContext, pc: Int): Int = {
         ensureRegularInstruction(ctx)
         ctx.writeReg(reg, f(ctx.regs(reg)))
         pc + 1
