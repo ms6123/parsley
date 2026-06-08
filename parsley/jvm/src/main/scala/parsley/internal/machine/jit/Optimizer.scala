@@ -28,7 +28,7 @@ object Optimizer {
             return fallback()
         }
 
-        System.err.println(s"JITing ${instrs.length} instructions")
+//        System.err.println(s"JITing ${instrs.length} instructions")
 
         val functionRanges = mutable.ArrayBuffer[Range]()
         var chunkStart = 0
