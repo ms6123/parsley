@@ -47,4 +47,8 @@ private [jit] class JitParseRunner(functions: Array[ParserFunction], numRegs: In
                 }
             }
         }
+
+    def unsafeDynCall(ctx: JitContext): Any = {
+        parseMethod.invokeExact(ctx)
+    }
 }

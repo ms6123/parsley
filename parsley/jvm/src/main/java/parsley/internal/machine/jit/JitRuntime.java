@@ -7,6 +7,7 @@ package parsley.internal.machine.jit;
 
 import parsley.internal.machine.ParseRunner;
 import parsley.internal.machine.jit.codegen.ClassGenContext$;
+import parsley.internal.machine.jit.codegen.JitParseRunner;
 import scala.Function3;
 
 @SuppressWarnings("unused")
@@ -26,5 +27,10 @@ public class JitRuntime {
     public static Continuation dynCall(Object x, Continuation caller, JitContext ctx, Function3<Object, Integer, Boolean, ParseRunner> f) {
         ParseRunner runner = f.apply(x, ctx.regs().length, true);
         return (Continuation) runner.dynCall(ctx, -1, caller);
+    }
+
+    public static Object unsafeDynCall(Object x, JitContext ctx, Function3<Object, Integer, Boolean, ParseRunner> f) {
+        JitParseRunner runner = (JitParseRunner) f.apply(x, ctx.regs().length, true);
+        return runner.unsafeDynCall(ctx);
     }
 }

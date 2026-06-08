@@ -16,6 +16,7 @@ import parsley.internal.machine.jit.utils.{CycleBreaker, Tarjan}
 
 object Optimizer {
     val isEnabled: Boolean = System.getProperty("parsley.jit.enabled", "true").toBoolean
+    val isUnsafe: Boolean = System.getProperty("parsley.jit.unsafe", "false").toBoolean
 
     val useTco: Boolean = false
     val allowInlining: Boolean = false
@@ -94,6 +95,10 @@ object Optimizer {
     }
 
     private def findCyclicFunctions(functions: collection.Map[Int, Array[Instr]]): Set[Int] = {
+        if (Optimizer.isUnsafe) {
+            // Pretend there are no cycles for speed
+            return Set.empty
+        }
         val graph = functions.map { case (id, instrs) => id -> calledIds(instrs) }
         Tarjan.findCyclicNodes(graph)
     }

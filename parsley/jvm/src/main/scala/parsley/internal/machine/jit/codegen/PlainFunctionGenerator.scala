@@ -6,8 +6,9 @@
 package parsley.internal.machine.jit.codegen
 
 import parsley.internal.machine.instructions.{FailMarker, JitImpl}
-import parsley.internal.machine.jit.{InstrInfo}
+import parsley.internal.machine.jit.{InstrInfo, Optimizer}
 import parsley.internal.machine.jit.codegen.FunctionGenerator.Constants.IMPL_NAME
+import parsley.internal.machine.ParseRunner
 
 import org.objectweb.asm.Opcodes
 
@@ -23,6 +24,16 @@ class PlainFunctionGenerator(function: ParserFunction, classVisitor: ClassGenCon
         loadContext()
         vis.visitMethodInsn(Opcodes.INVOKESTATIC, ParserGenerator.className(id), IMPL_NAME, FunctionGenerator.implDesc(producesResults), false)
         jumpUsingReturnValue(pos, instrInfo, if (producesResults) classOf[AnyRef] else classOf[Boolean])
+    }
+
+    override protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)
+                                          (implicit vis: ClassGenContext#MethodGenVisitor): Unit = {
+        require(Optimizer.isUnsafe)
+
+        loadContext()
+        vis.loadObject(f)
+        vis.callMethod(Members.JitRuntime.UNSAFE_DYN_CALL)
+        jumpUsingReturnValue(pos, instrInfo, classOf[AnyRef])
     }
 
     override protected def generateSuccess()(implicit vis: ClassGenContext#MethodGenVisitor): Unit = {

@@ -69,5 +69,6 @@ private [codegen] object Members {
         val DYN_CALL: Method = classOf[JitRuntime].getMethod(
             "dynCall", classOf[Any], classOf[Continuation], classOf[JitContext], classOf[Function3[?, ?, ?, ?]]
         )
+        val UNSAFE_DYN_CALL: Method = classOf[JitRuntime].getMethod("unsafeDynCall", classOf[Any], classOf[JitContext], classOf[Function3[?, ?, ?, ?]])
     }
 }

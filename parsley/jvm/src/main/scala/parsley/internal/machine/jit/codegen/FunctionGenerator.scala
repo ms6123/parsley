@@ -135,10 +135,8 @@ private [codegen] abstract class FunctionGenerator(function: ParserFunction, cla
 
     protected def generateCall(pos: Int, instrInfo: InstrInfo, id: Int, producesResults: Boolean)(implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
-    protected def generateDynCall(@unused pos: Int, @unused instrInfo: InstrInfo, @unused f: (Any, Int, Boolean) => ParseRunner)
-                                 (implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit = {
-        throw new UnsupportedOperationException(s"Dynamic calls are not supported by $this")
-    }
+    protected def generateDynCall(pos: Int, instrInfo: InstrInfo, f: (Any, Int, Boolean) => ParseRunner)
+                                 (implicit vis: ClassGenContext#MethodGenVisitor): Unit
 
     protected def generateImplStart()(implicit @unused vis: ClassGenContext#MethodGenVisitor): Unit = ()
 
