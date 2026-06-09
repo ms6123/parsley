@@ -32,7 +32,7 @@ private [jit] class JitParseRunner(functions: Array[ParserFunction], numRegs: In
         new JitContext(parseMethod, input, numRegs).run() match {
             case success: Success[?] => success
             case Failure(_) =>
-                System.err.println("Falling back to interpreter")
+//                System.err.println("Falling back to interpreter")
                 fallback().run(input, sourceFile)
         }
 
