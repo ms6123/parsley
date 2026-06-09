@@ -74,6 +74,7 @@ lazy val parsley = crossProject(JSPlatform, JVMPlatform, NativePlatform)
 
     Compile / doc / scalacOptions ++= Seq("-groups", "-doc-root-content", s"${baseDirectory.value.getParentFile.getPath}/rootdoc.md"),
     scalacOptions += "-Wconf:msg=Usage of named or default arguments transformed this annotation:s",
+    mimaPreviousArtifacts += "com.github.j-mie6" %%% "parsley" % "5.0.0-M19",
   )
   .jvmSettings(
     libraryDependencies += "org.ow2.asm" % "asm" % "9.6",
